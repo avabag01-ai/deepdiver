@@ -318,7 +318,12 @@ function update(dtSecRaw) {
     const ch = state.terrainFg[i];
     ch.y -= scrollPx;
     if (!state.over && collidesWithTerrain(ch, player.x, player.y, PLAYER_RADIUS * 0.6)) {
+      const wasInvuln = state.timeSec < state.invulnUntil;
       damagePlayer();
+      // 지형에 스친 순간 돌가루 파편이 튀는 연출 (무적시간 중 연속 판정은 중복 방지)
+      if (!wasInvuln) {
+        state.bursts.push(createBurst(player.x, player.y, '#b8a488'));
+      }
     }
     if (ch.y + ch.height < -20) state.terrainFg.splice(i, 1);
   }

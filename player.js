@@ -414,16 +414,19 @@ export function drawPlayer(ctx, player) {
   ctx.fill();
   hilite(ctx, () => { ctx.beginPath(); ctx.arc(8.5, -22.5, 0.85, 0, Math.PI * 2); }, 0.8);
 
-  // ---- 숨 기포 트레일 (마스크 옆에서 주기적으로 떠오름, 다이빙 생동감) ----
+  // ---- 숨 기포 트레일 (마스크 옆에서 풍성하게 피어오름, 목업 참조로 개수/지속시간 확대) ----
   const bubblePhase = player.swimPhase * 0.9;
-  for (let i = 0; i < 3; i++) {
-    const bt = (bubblePhase + i * 0.7) % 1.4;
-    if (bt > 1) continue;
-    const by = -15 - bt * 22;
-    const bx = 4 + Math.sin(bt * 7 + i) * 2.4;
-    const br = (0.9 + i * 0.35) * (1 - bt * 0.3);
+  const BUBBLE_COUNT = 7;
+  const BUBBLE_CYCLE = 2.1;
+  for (let i = 0; i < BUBBLE_COUNT; i++) {
+    const bt = (bubblePhase + i * 0.42) % BUBBLE_CYCLE;
+    if (bt > 1.6) continue;
+    const prog = bt / 1.6;
+    const by = -15 - prog * 34;
+    const bx = 4 + Math.sin(bt * 6.5 + i * 1.7) * (2.6 + i * 0.3);
+    const br = (0.7 + (i % 3) * 0.4) * (1 - prog * 0.35);
     ctx.save();
-    ctx.globalAlpha = 0.55 * (1 - bt);
+    ctx.globalAlpha = 0.5 * (1 - prog);
     ctx.strokeStyle = 'rgba(220,245,255,0.9)';
     ctx.lineWidth = 0.8;
     ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
