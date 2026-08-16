@@ -69,6 +69,25 @@ export function createBgChunk(zoneId, side, spawnY) {
   return chunk;
 }
 
+// 극원경(distant) 조각 — bg보다 더 흐릿하고 어둡게, 스크롤도 더 느리게(game.js에서 0.3배 적용).
+// 목업처럼 "저 뒤에 뭔가 있다"는 깊이감만 주는 용도라 디테일은 거의 없이 실루엣만.
+export function createDistantChunk(zoneId, side, spawnY) {
+  const width = CANVAS_W * (0.4 + Math.random() * 0.3);
+  const height = BG_HEIGHT_MIN + Math.random() * (BG_HEIGHT_MAX - BG_HEIGHT_MIN);
+  const chunk = {
+    zoneId,
+    side,
+    x: side === 'left' ? -width * 0.4 : CANVAS_W - width * 0.6,
+    y: spawnY,
+    width,
+    height,
+    seed: Math.random() * 1000,
+    layer: 'distant',
+  };
+  chunk.tex = bakeTexture(chunk);
+  return chunk;
+}
+
 // 벽처럼 세로로 긴 지형의 안쪽(통로쪽) 가장자리를 그릴 때 쓰는 공용 헬퍼.
 // 진폭을 조각 전체 높이에 비례시키지 않고 "고정 픽셀 값"으로 둬서, 조각이 아무리
 // 길어져도 하나의 거대한 굴곡이 아니라 일정한 리듬으로 반복되는 요철이 되게 한다.
@@ -384,10 +403,16 @@ function drawVentAnimated(ctx, chunk, timeSec) {
   }
 }
 
+function alphaForLayer(chunk) {
+  if (chunk.layer === 'fg') return 1;
+  if (chunk.layer === 'distant') return 0.2; // 극원경: 아주 흐릿하게, 실루엣 정도만
+  return chunk.zoneId === 'shallow' ? 0.55 : 0.5; // 중원경(bg)
+}
+
 export function drawTerrainChunk(ctx, chunk, timeSec) {
   const isFg = chunk.layer === 'fg';
   ctx.save();
-  ctx.globalAlpha = isFg ? 1 : (chunk.zoneId === 'shallow' ? 0.55 : 0.5);
+  ctx.globalAlpha = alphaForLayer(chunk);
   if (chunk.tex) ctx.drawImage(chunk.tex, chunk.x, chunk.y);
   ctx.restore();
   if (chunk.zoneId === 'vent' && isFg) drawVentAnimated(ctx, chunk, timeSec);

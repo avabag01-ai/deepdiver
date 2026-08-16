@@ -1,6 +1,6 @@
 // zones.js — 4구역 정의: 수심 경계, 배경, 뎁스베일, 경계 크로스페이드
 
-import { CANVAS_W, CANVAS_H, lerpColor, rgba, stairStack } from './utils.js';
+import { CANVAS_W, CANVAS_H, lerpColor, rgba, stairStack, clamp } from './utils.js';
 
 export const ZONES = [
   {
@@ -200,6 +200,79 @@ export function drawHeadlampDarkness(ctx, playerX, playerY, opts = {}) {
   // 캔버스 밖으로 크게 채워도 실제 렌더 비용은 캔버스 뷰포트 크기로 자동 클리핑되어 저렴하다.
   ctx.fillRect(-4000, -4000 / aspect, 8000, 8000 / aspect);
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// 화면 전체 후처리 오버레이 (목업 참조: 채도 높고 대비 강한 "물속에 있다" 느낌).
+// 셰이더 없이 캔버스 합성만으로 근사 — 매 프레임 저비용(그라디언트/파티클 소수)만 사용.
+
+// 마린 스노(부유 미세입자) — 배경 파티클(drawParticles)과 달리 씬 전체 위에
+// 맨 마지막에 그려서 카메라에 가까운 부유물처럼 보이게 한다. 개수가 적어
+// (20~40개) 오프스크린 캐싱 없이 매 프레임 직접 그려도 비용이 낮다.
+const SNOW_COUNT = 32;
+let snowSeeds = null;
+export function drawMarineSnow(ctx, depth, timeSec) {
+  if (!snowSeeds) {
+    snowSeeds = Array.from({ length: SNOW_COUNT }, () => ({
+      x: Math.random() * CANVAS_W,
+      y: Math.random() * CANVAS_H,
+      r: 0.7 + Math.random() * 1.7,
+      speed: 4 + Math.random() * 9,
+      drift: Math.random() * Math.PI * 2,
+      alpha: 0.2 + Math.random() * 0.4,
+    }));
+  }
+  ctx.save();
+  for (const p of snowSeeds) {
+    // 다이버 하강 방향과 반대(상대적으로 위)로 아주 느리게 흘러 근경 부유물 느낌
+    const raw = p.y - timeSec * p.speed - depth * 0.1;
+    const y = ((raw % CANVAS_H) + CANVAS_H) % CANVAS_H;
+    const x = p.x + Math.sin(timeSec * 0.35 + p.drift) * 9;
+    ctx.fillStyle = `rgba(224,238,248,${p.alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 색조 보정 — 구역 색을 그대로 곱연산(multiply)으로 살짝 덧씌워 "물속 색감"의
+// 통일감을 준다. 깊어질수록 틴트가 짙어진다.
+export function drawColorGrade(ctx, depth) {
+  const { zone, next, t } = zoneBlendAt(depth);
+  const tintColor = lerpColor(zone.fogTint || '#0a2a54', next.fogTint || zone.fogTint || '#0a2a54', t);
+  const depthT = clamp(depth / 1400, 0, 1);
+  const alpha = 0.05 + depthT * 0.17;
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = rgba(tintColor, alpha);
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // multiply만 쓰면 전체가 탁해지므로, 아주 옅은 청록 overlay를 얹어 채도/대비를 살짝 보정
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.fillStyle = 'rgba(120, 220, 230, 0.05)';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
+
+// 비네팅 — 화면 가장자리를 향해 어두워지는 radial gradient 한 번으로 근사.
+export function drawVignette(ctx, strength = 0.5) {
+  ctx.save();
+  const cx = CANVAS_W / 2, cy = CANVAS_H * 0.46;
+  const g = ctx.createRadialGradient(cx, cy, CANVAS_H * 0.22, cx, cy, CANVAS_H * 0.72);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.7, `rgba(2,6,14,${strength * 0.45})`);
+  g.addColorStop(1, `rgba(2,6,14,${strength})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  ctx.restore();
+}
+
+// 세 오버레이를 한 번에 — game.js 렌더 루프 맨 마지막에 한 번만 호출하면 됨.
+export function drawPostProcess(ctx, depth, timeSec) {
+  drawMarineSnow(ctx, depth, timeSec);
+  drawColorGrade(ctx, depth);
+  drawVignette(ctx);
 }
 
 // 뎁스베일: 심해 구간에서 생물 위에 덧씌우는 반투명 남색 레이어 (거리감 표현)

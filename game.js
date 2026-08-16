@@ -3,9 +3,9 @@
 // (이전 프로토타입에서 ms를 초처럼 잘못 써서 속도가 폭주하는 버그가 있었음 — 재발 금지)
 
 import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange, glow } from './utils.js';
-import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness } from './zones.js';
+import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostProcess } from './zones.js';
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
-import { createTerrainChunk, createBgChunk, drawTerrainChunk, collidesWithTerrain } from './terrain.js';
+import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
 import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst } from './item.js';
 
@@ -18,6 +18,10 @@ const SHAKE_DURATION = 0.35;
 const SHAKE_MAG = 7;
 const HEART_FULL = '❤️';
 const HEART_EMPTY = '🖤';
+
+// 극원경(distant) 레이어에 가끔 스쳐가는 거대 해양생물 실루엣 (충돌 없음, 순수 연출).
+// 헤드램프 암전 구역(deepsea/vent)은 이미 어둠 연출이 있으므로 밝은 구역에서만 배치.
+const DISTANT_SILHOUETTE_BY_ZONE = { shallow: 'reefshark', twilight: 'reefshark' };
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -60,6 +64,9 @@ function makeInitialState() {
     items: [],
     terrainFg: [],
     terrainBg: [],
+    terrainDistant: [],
+    distantCreatures: [],
+    distantCreatureTimer: randRange(6, 12),
     bursts: [],
     creatureSpawnTimer: randRange(0.65, 1.4),
     itemSpawnTimer: randRange(2.2, 3.6),
@@ -73,6 +80,10 @@ function makeInitialState() {
     terrainBgGap: randRange(CANVAS_H * 0.8, CANVAS_H * 1.5),
     terrainBgSide: Math.random() < 0.5 ? 'left' : 'right',
     terrainBgProgress: randRange(CANVAS_H * 0.2, CANVAS_H * 0.6),
+    // 극원경: 더 크고 드문드문하게 (3단 패럴랙스의 가장 느린 레이어, 0.3배속으로 스크롤)
+    terrainDistantGap: randRange(CANVAS_H * 1.2, CANVAS_H * 2.2),
+    terrainDistantSide: Math.random() < 0.5 ? 'left' : 'right',
+    terrainDistantProgress: randRange(CANVAS_H * 0.1, CANVAS_H * 0.4),
     timeSec: 0,
     devAutoStart: isFinite(devDepth),
     // 종 다양성 보정용: 최근 스폰 시각 / 직전 스폰 종
@@ -147,6 +158,30 @@ function spawnTerrainBg(depthM) {
   state.terrainBgGap = randRange(CANVAS_H * 0.8, CANVAS_H * 1.5);
 }
 
+function spawnTerrainDistant(depthM) {
+  const zoneId = zoneAt(depthM).id;
+  const chunk = createDistantChunk(zoneId, state.terrainDistantSide, CANVAS_H);
+  state.terrainDistant.push(chunk);
+  state.terrainDistantSide = Math.random() < 0.5 ? 'left' : 'right';
+  state.terrainDistantGap = randRange(CANVAS_H * 1.2, CANVAS_H * 2.2);
+}
+
+// 목업 참조: 헤드램프 뒤쪽 원경에 흐릿하게 스쳐가는 거대 해양생물 실루엣 (충돌 없음)
+function spawnDistantCreature(depthM) {
+  const zoneId = zoneAt(depthM).id;
+  const spId = DISTANT_SILHOUETTE_BY_ZONE[zoneId];
+  if (!spId) return;
+  const sp = speciesById(spId);
+  state.distantCreatures.push({
+    speciesId: spId,
+    x: randRange(50, CANVAS_W - 50),
+    y: CANVAS_H + 80,
+    scale: 2.1 + Math.random() * 1.4,
+    phase: Math.random() * Math.PI * 2,
+    spawnT: Math.random() * 10,
+  });
+}
+
 function endGame() {
   state.over = true;
   state.running = false;
@@ -217,6 +252,16 @@ function update(dtSecRaw) {
     state.terrainBgProgress = 0;
     spawnTerrainBg(depthM);
   }
+  state.terrainDistantProgress += scrollPx;
+  if (state.terrainDistantProgress >= state.terrainDistantGap) {
+    state.terrainDistantProgress = 0;
+    spawnTerrainDistant(depthM);
+  }
+  state.distantCreatureTimer -= dtSec;
+  if (state.distantCreatureTimer <= 0) {
+    spawnDistantCreature(depthM);
+    state.distantCreatureTimer = randRange(9, 18);
+  }
 
   // ---- 생물 갱신 + 충돌 ----
   // 다이버가 하강할수록 생물은 화면 아래에서 나타나 위로 흘러가 사라진다 (지형과 동일 방향).
@@ -279,8 +324,18 @@ function update(dtSecRaw) {
   }
   for (let i = state.terrainBg.length - 1; i >= 0; i--) {
     const ch = state.terrainBg[i];
-    ch.y -= scrollPx * 0.6; // 원경은 시차감을 위해 느리게
+    ch.y -= scrollPx * 0.6; // 중원경은 시차감을 위해 느리게
     if (ch.y + ch.height < -20) state.terrainBg.splice(i, 1);
+  }
+  for (let i = state.terrainDistant.length - 1; i >= 0; i--) {
+    const ch = state.terrainDistant[i];
+    ch.y -= scrollPx * 0.3; // 극원경: 3단 패럴랙스 중 가장 느리게
+    if (ch.y + ch.height < -20) state.terrainDistant.splice(i, 1);
+  }
+  for (let i = state.distantCreatures.length - 1; i >= 0; i--) {
+    const c = state.distantCreatures[i];
+    c.y -= scrollPx * 0.3;
+    if (c.y < -150) state.distantCreatures.splice(i, 1);
   }
 
   // ---- 파티클 버스트 ----
@@ -315,6 +370,18 @@ function render() {
   }
 
   drawBackground(ctx, depthM, state.timeSec);
+
+  // 극원경: 가장 뒤쪽 레이어 — 흐릿한 큰 실루엣 + 가끔 스쳐가는 거대 생물 그림자
+  for (const ch of state.terrainDistant) drawTerrainChunk(ctx, ch, state.timeSec);
+  if (state.distantCreatures.length) {
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    for (const c of state.distantCreatures) {
+      const sp = speciesById(c.speciesId);
+      sp.draw(ctx, c.x, c.y, state.timeSec + c.spawnT, sp.size * c.scale);
+    }
+    ctx.restore();
+  }
 
   for (const ch of state.terrainBg) drawTerrainChunk(ctx, ch, state.timeSec);
 
@@ -362,6 +429,10 @@ function render() {
   for (const b of state.bursts) drawBurst(ctx, b);
 
   ctx.restore();
+
+  // 화면 전체 후처리 (비네팅+색조 보정+마린 스노) — 흔들림 오프셋과 무관하게 항상
+  // 화면 전체를 고정 좌표로 덮어야 하므로 위 ctx.restore() 이후, 맨 마지막에 그린다.
+  drawPostProcess(ctx, depthM, state.timeSec);
 }
 
 let lastTs = null;
