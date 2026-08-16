@@ -12,6 +12,38 @@ function outline(ctx, w) {
   ctx.lineCap = 'round';
 }
 
+// 오리발(핀) 한 짝을 그리는 헬퍼 — 좌우 다리를 각각 반대 위상으로 호출해
+// 실제 수영 킥처럼 한쪽이 위로 갈 때 다른 쪽은 아래로 가도록 만든다.
+function drawFinBlade(ctx, offsetX, kick, scale) {
+  ctx.save();
+  ctx.translate(offsetX, 0);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part / scale;
+  ctx.fillStyle = FIN_COLOR;
+  ctx.beginPath();
+  ctx.moveTo(-4, 14);
+  ctx.lineTo(4, 14);
+  ctx.quadraticCurveTo(5.2 + kick * 0.3, 19, 3.6 + kick, 24);
+  ctx.quadraticCurveTo(6.6 + kick, 27, 4.4 + kick, 31);
+  ctx.quadraticCurveTo(0 + kick * 0.7, 28, -1.4 + kick * 0.6, 24);
+  ctx.quadraticCurveTo(-3.2, 19, -4, 14);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  shade(ctx, () => {
+    ctx.beginPath();
+    ctx.moveTo(0, 16.5);
+    ctx.quadraticCurveTo(3.6 + kick * 0.5, 21, 2.2 + kick, 28);
+    ctx.lineTo(-0.7 + kick * 0.6, 23.5);
+    ctx.quadraticCurveTo(-1.4, 19, 0, 16.5);
+  }, 0.24);
+  // 핀 골(리브) 라인 디테일
+  ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = STROKE.detail / scale;
+  ctx.beginPath();
+  ctx.moveTo(0, 17.5); ctx.quadraticCurveTo(1.4 + kick * 0.5, 23, 0.7 + kick, 28);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export const PLAYER_ANCHOR_Y = CANVAS_H * 0.72; // 기본(중립) y — 세로 이동 범위의 중심
 export const PLAYER_RADIUS = 16; // 시각 크기 기준 (충돌 반경은 game.js에서 0.6배 적용)
 
@@ -171,7 +203,11 @@ export function drawPlayer(ctx, player) {
   const y = player.y + player.visualYOffset;
   const facing = player.facing;
 
-  const finKick = Math.sin(player.swimPhase * 6.5) * 5;
+  // 좌우 다리가 서로 엇갈리게(반대 위상, 위상차 π) 움직이는 발차기 —
+  // 한쪽 핀이 위로 갈 때 반대쪽은 아래로 가는 실제 수영 킥 모션.
+  const kickPhase = player.swimPhase * 6.5;
+  const backFinKick = Math.sin(kickPhase) * 6;
+  const frontFinKick = Math.sin(kickPhase + Math.PI) * 6;
   const armSwing = Math.sin(player.swimPhase * 6.5 + 1.4) * 2.4;
   // 다이버 특유의 헤엄치는 자세감: 상하 이동 속도에 따라 몸 전체를 살짝 기울여
   // 직립 원통형이 아니라 앞으로 나아가는 다이빙 자세처럼 보이게 한다.
@@ -224,35 +260,15 @@ export function drawPlayer(ctx, player) {
   outline(ctx, STROKE.detail); ctx.fill(); ctx.stroke();
   ctx.restore();
 
-  // ---- 오리발 (핀) — 짧고 통통한 부채꼴 핀 날 + 스트랩 (과장된 길이 지양) ----
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = FIN_COLOR;
-  ctx.beginPath();
-  ctx.moveTo(-5.5, 14);
-  ctx.lineTo(5.5, 14);
-  ctx.quadraticCurveTo(7 + finKick * 0.3, 19, 5 + finKick, 24);
-  ctx.quadraticCurveTo(9 + finKick, 27, 6 + finKick, 31);
-  ctx.quadraticCurveTo(0 + finKick * 0.7, 28, -2 + finKick * 0.6, 24);
-  ctx.quadraticCurveTo(-4.5, 19, -5.5, 14);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  shade(ctx, () => {
-    ctx.beginPath();
-    ctx.moveTo(0, 16.5);
-    ctx.quadraticCurveTo(5 + finKick * 0.5, 21, 3 + finKick, 28);
-    ctx.lineTo(-1 + finKick * 0.6, 23.5);
-    ctx.quadraticCurveTo(-2, 19, 0, 16.5);
-  }, 0.24);
-  // 핀 골(리브) 라인 디테일
-  ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = STROKE.detail;
-  ctx.beginPath();
-  ctx.moveTo(0, 17.5); ctx.quadraticCurveTo(2 + finKick * 0.5, 23, 1 + finKick, 28);
-  ctx.stroke();
-  // 발 스트랩
+  // ---- 오리발 (핀) — 좌우 두 짝을 분리해서 반대 위상으로 그려 엇갈린 발차기를 표현 ----
+  // 뒤쪽(몸 안쪽) 다리를 먼저 그려 아래에 깔리게 하고, 앞쪽 다리를 그 위에 겹쳐 그린다.
+  drawFinBlade(ctx, -2.4, backFinKick, 0.88);
+  drawFinBlade(ctx, 2.4, frontFinKick, 1);
+  // 발 스트랩 (양쪽 발목을 가로지르는 벨트, 다리 사이 이음새를 자연스럽게 가려줌)
   ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 2.3; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(-5, 15.5); ctx.lineTo(5, 15.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-6, 15.5 - backFinKick * 0.08); ctx.lineTo(6.5, 15.5 - frontFinKick * 0.08); ctx.stroke();
   outline(ctx, STROKE.detail);
-  ctx.beginPath(); ctx.moveTo(-5, 15.5); ctx.lineTo(5, 15.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-6, 15.5 - backFinKick * 0.08); ctx.lineTo(6.5, 15.5 - frontFinKick * 0.08); ctx.stroke();
 
   // ---- 몸통 (통통하고 둥근 웻슈트 — 타원보다 원에 가깝게, 부드러운 곡선) ----
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
