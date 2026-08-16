@@ -1512,6 +1512,43 @@ export const SPECIES = [
   { id: 'scalyfootsnail', name: '스케일풋 고둥', zone: 'vent', weight: 2, size: 1.0, swayAmp: 1, swayPeriod: 5.0, glowing: false, draw: drawScalyfootSnail },
 ];
 
+// ---------------------------------------------------------------------------
+// 헤드램프 어둠 연출용 발광 지점 좌표 (미드나이트존/헤달존 전용, game.js에서 사용).
+// 좌표는 각 draw 함수 안에서 실제로 glow()/eye({glow}) 호출에 쓰인 위치와 동일한
+// "s배 전" 기준 오프셋이다 (game.js에서 creature.curX + dx*sp.size 로 환산).
+// 이 리스트에 없는(비발광) 종은 조명 범위 밖에서는 아예 보이지 않는다.
+export const GLOW_SPOTS = {
+  moonjelly: [{ dx: 0, dy: 0, r: 14, color: '#bfe8ff', alpha: 0.4 }],
+  lanternfish: [
+    { dx: -4, dy: 1, r: 7, color: '#8ad1ff', alpha: 0.5 },
+    { dx: -8, dy: -0.5, r: 1, color: '#cfefff', alpha: 0.85 },
+    { dx: 0, dy: -0.5, r: 1, color: '#cfefff', alpha: 0.85 },
+    { dx: 8, dy: -0.5, r: 1, color: '#cfefff', alpha: 0.85 },
+  ],
+  viperfish: [{ dx: -10, dy: -20, r: 6, color: '#8ad1ff', alpha: 0.65 }],
+  hatchetfish: [{ dx: -2, dy: 2, r: 8, color: '#9fd8ff', alpha: 0.45 }],
+  barreleye: [
+    { dx: -4.5, dy: -6, r: 4, color: '#8dffb8', alpha: 0.5 },
+    { dx: 4.5, dy: -6, r: 4, color: '#8dffb8', alpha: 0.5 },
+  ],
+  anglerfish: [{ dx: 17, dy: -22, r: 12, color: '#ffe27a', alpha: 0.75 }],
+  pelicaneel: [{ dx: 32, dy: 0, r: 5, color: '#ff5c4d', alpha: 0.6 }],
+  dragonfish: [
+    { dx: 12, dy: 46, r: 7, color: '#ffb066', alpha: 0.7 },
+    { dx: 6, dy: -0.5, r: 3.5, color: '#bfe8ff', alpha: 0.5 },
+  ],
+  vampiresquid: [
+    { dx: 8.5, dy: -4, r: 4.5, color: '#ff4d6d', alpha: 0.75 },
+    { dx: -8.5, dy: -4, r: 4.5, color: '#ff4d6d', alpha: 0.75 },
+  ],
+  dumbooctopus: [{ dx: 0, dy: -2, r: 9, color: '#ffe0f0', alpha: 0.3 }],
+  dandelionjelly: [{ dx: 0, dy: 0, r: 12, color: '#ff5a5a', alpha: 0.45 }],
+};
+
+export function speciesGlowSpots(id) {
+  return GLOW_SPOTS[id] || null;
+}
+
 export function speciesPoolForZone(zoneId) {
   return SPECIES.filter(sp => sp.zone === zoneId);
 }

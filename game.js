@@ -2,9 +2,9 @@
 // 중요: 델타타임은 반드시 초 단위(dtSec = dt/1000)로 정규화해서 사용한다.
 // (이전 프로토타입에서 ms를 초처럼 잘못 써서 속도가 폭주하는 버그가 있었음 — 재발 금지)
 
-import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange } from './utils.js';
-import { zoneAt, drawBackground, drawDepthVeil } from './zones.js';
-import { speciesById, SPECIES, pickSpeciesForZone } from './species.js';
+import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange, glow } from './utils.js';
+import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness } from './zones.js';
+import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
 import { createTerrainChunk, createBgChunk, drawTerrainChunk, collidesWithTerrain } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
 import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst } from './item.js';
@@ -327,7 +327,26 @@ function render() {
 
   for (const ch of state.terrainFg) drawTerrainChunk(ctx, ch, state.timeSec);
 
-  drawDepthVeil(ctx, depthM);
+  // 미드나이트존/헤달존: 화면을 거의 새까맣게 덮고 다이버 헤드램프 주변만 보이게 하는
+  // 조명 마스크를 씌운다. 발광 생물은 어둠 속에서도 발광 지점만 먼저 빛나 보이도록
+  // 마스크 위에 별도로 그려 서스펜스를 만든다 (비발광 생물/지형은 조명 안에서만 보임).
+  const zone = zoneAt(depthM);
+  if (zone.pitchBlack) {
+    drawHeadlampDarkness(ctx, player.x, player.y);
+    for (const c of state.creatures) {
+      const sp = speciesById(c.speciesId);
+      if (!sp.glowing) continue;
+      const spots = speciesGlowSpots(sp.id);
+      if (!spots) continue;
+      const wx = c.curX ?? c.baseX;
+      const wy = c.curY ?? c.y;
+      for (const spot of spots) {
+        glow(ctx, wx + spot.dx * sp.size, wy + spot.dy * sp.size, spot.r * sp.size, spot.color, spot.alpha);
+      }
+    }
+  } else {
+    drawDepthVeil(ctx, depthM);
+  }
 
   // 무적 시간 동안 다이버를 깜빡여서 피격 후 보호 상태임을 알림
   if (invulnerable) {

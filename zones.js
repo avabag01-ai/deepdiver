@@ -34,26 +34,28 @@ export const ZONES = [
     name: '심해',
     minDepth: 600,
     maxDepth: 2000,
-    sky: '#0c1c3a',
-    mid: '#081328',
-    deep: '#050b1a',
-    rayStrength: 0.12,
+    sky: '#050810',
+    mid: '#020308',
+    deep: '#000000',
+    rayStrength: 0.03,
     rayColor: '#5a8bd6',
     veil: 0.22,
     fogTint: '#050b1a',
+    pitchBlack: true, // 헤드램프 조명 마스크 적용 대상 (game.js)
   },
   {
     id: 'vent',
     name: '열수구',
     minDepth: 2000,
     maxDepth: Infinity,
-    sky: '#0a0a14',
-    mid: '#08080f',
-    deep: '#05050a',
+    sky: '#020204',
+    mid: '#000000',
+    deep: '#000000',
     rayStrength: 0.0,
     rayColor: '#ff9d5c',
     veil: 0.32,
     fogTint: '#05050a',
+    pitchBlack: true, // 헤드램프 조명 마스크 적용 대상 (game.js)
   },
 ];
 
@@ -168,6 +170,35 @@ function drawParticles(ctx, depth, timeSec) {
     ctx.arc(x, y, p.r, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+// 헤드램프 조명 마스크 — 미드나이트존/헤달존 전용.
+// 화면 전체를 거의 새까맣게 덮되, 다이버(빛의 중심) 주위 타원형 구멍만 뚫어
+// 그 안쪽 지형/생물만 보이게 한다. radial gradient + 비균등 scale로 세로로 긴
+// "조명 원뿔" 느낌을 내며, 매 프레임 gradient 1회 생성 + fillRect 1회만 사용해
+// 무거운 픽셀 연산 없이 저비용으로 처리한다.
+// lightY는 다이버보다 하강방향(화면 아래쪽, y 증가 방향)으로 치우치게 하여
+// 앞으로 다가올 장애물을 더 멀리서부터 비추도록 해 최소 반응시간을 확보한다.
+export function drawHeadlampDarkness(ctx, playerX, playerY, opts = {}) {
+  const rx = opts.rx ?? 100;
+  const ry = opts.ry ?? 225;
+  const biasY = opts.biasY ?? 55; // 하강 방향(화면 아래)으로 조명 중심을 살짝 이동
+  const cx = playerX;
+  const cy = playerY + biasY;
+  const aspect = ry / rx;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, aspect);
+  const grad = ctx.createRadialGradient(0, 0, rx * 0.22, 0, 0, rx);
+  grad.addColorStop(0, 'rgba(2,4,10,0)');
+  grad.addColorStop(0.55, 'rgba(2,4,10,0.5)');
+  grad.addColorStop(0.85, 'rgba(2,4,10,0.9)');
+  grad.addColorStop(1, 'rgba(2,4,10,0.97)');
+  ctx.fillStyle = grad;
+  // 캔버스 밖으로 크게 채워도 실제 렌더 비용은 캔버스 뷰포트 크기로 자동 클리핑되어 저렴하다.
+  ctx.fillRect(-4000, -4000 / aspect, 8000, 8000 / aspect);
   ctx.restore();
 }
 
