@@ -122,6 +122,28 @@ export function stairStack(ctx, count, baseAlpha, drawLayerFn) {
   }
 }
 
+// ---- 결정적 해시 노이즈 (상태 없음, 같은 입력엔 항상 같은 출력) ----------------
+// 절차적 텍스처(균열/얼룩/지터)에 사용. Math.random() 대신 이걸 쓰면 매 프레임
+// 다시 그려도(캔버스 특성상 필연적으로 매번 다시 그림) 같은 자리에 같은 무늬가
+// 나와서 "깜빡이는 노이즈"가 되지 않는다.
+export function hash(seed) {
+  const n = Math.sin(seed * 12.9898) * 43758.5453;
+  return n - Math.floor(n); // [0,1)
+}
+
+export function hash2(a, b) {
+  const n = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
+  return n - Math.floor(n); // [0,1)
+}
+
+// 여러 색 정지점을 가진 선형 그라디언트를 간단히 생성 (다단 셰이딩용)
+// stops: [[offset(0~1), colorString], ...]
+export function multiGradient(ctx, x0, y0, x1, y1, stops) {
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  for (const [offset, color] of stops) g.addColorStop(offset, color);
+  return g;
+}
+
 // ---- 가중치 랜덤 --------------------------------------------------------------
 export function weightedPick(entries) {
   // entries: [{ weight, ...payload }]

@@ -2,7 +2,7 @@
 // 각 생물: 심해생물학 브리프 기준 실루엣·색상·동작·과장 포인트를 반영해 부위별 레이어로 그린다.
 // sway 카테고리: 뱀형(S자 웨이브) / 원반형(펄스) / 갑각류(몸통고정+말단만) / 유선형(꼬리채찍)
 
-import { INK, STROKE, shade, hilite, eye, glow, rgba, weightedPick } from './utils.js';
+import { INK, STROKE, shade, hilite, eye, glow, rgba, weightedPick, hash2, multiGradient, lerpColor } from './utils.js';
 
 function outline(ctx, w) {
   ctx.strokeStyle = INK;
@@ -110,9 +110,11 @@ function drawReefShark(ctx, x, y, t, s) {
   ctx.closePath();
   ctx.fill(); ctx.stroke();
 
-  // 몸통 (유선형, 뾰족한 주둥이)
+  // 몸통 (유선형, 뾰족한 주둥이) — 등~배 다단 그라디언트로 카운터셰이딩을 부드럽게 이어지게
   outline(ctx, STROKE.silhouette * s);
-  ctx.fillStyle = '#7E93A0';
+  ctx.fillStyle = multiGradient(ctx, 0, -9 * s, 0, 9 * s, [
+    [0, '#5E7280'], [0.35, '#7E93A0'], [0.62, '#A6B6C0'], [1, '#EFF4F6'],
+  ]);
   ctx.beginPath();
   ctx.moveTo(-24 * s, 0);
   ctx.quadraticCurveTo(-14 * s, -11 * s, 6 * s, -9 * s);
@@ -121,12 +123,24 @@ function drawReefShark(ctx, x, y, t, s) {
   ctx.quadraticCurveTo(-14 * s, 11 * s, -24 * s, 0);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 카운터셰이딩: 흰 배
-  ctx.fillStyle = '#EFF4F6';
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(6 * s, -1 * s, 18 * s, 5 * s, 0, 0, Math.PI * 2); }, 0.14);
+  // 피부 결 텍스처: 몸 곡선을 따라 흐르는 미세한 줄무늬(denticle 결) — 결정적 노이즈로 위치 고정
+  ctx.strokeStyle = rgba(INK, 0.16); ctx.lineWidth = STROKE.detail * s * 0.7; ctx.lineCap = 'round';
+  for (let i = 0; i < 9; i++) {
+    const lx = -18 * s + i * 5 * s;
+    const ly = -6 * s + hash2(i, 3.1) * 10 * s;
+    const len = (4 + hash2(i, 7.7) * 3) * s;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.quadraticCurveTo(lx + len * 0.5, ly - 1 * s, lx + len, ly - 0.5 * s);
+    ctx.stroke();
+  }
+  // 등쪽 스펙큘러 하이라이트 (젖은 피부 광택 스트리크)
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)'; ctx.lineWidth = 1.4 * s; ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.ellipse(0, 5.5 * s, 20 * s, 5 * s, 0, 0, Math.PI);
-  ctx.fill();
-  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(6 * s, -1 * s, 18 * s, 5 * s, 0, 0, Math.PI * 2); }, 0.2);
+  ctx.moveTo(-10 * s, -6.5 * s);
+  ctx.quadraticCurveTo(2 * s, -8.5 * s, 14 * s, -5 * s);
+  ctx.stroke();
 
   // 등지느러미 (중앙, 큰 삼각형 1개)
   outline(ctx, STROKE.part * s);
@@ -239,9 +253,11 @@ function drawSeaTurtle(ctx, x, y, t, s) {
   ctx.beginPath(); ctx.moveTo(-7 * s, 0); ctx.lineTo(7 * s, 0); ctx.stroke();
   ctx.restore();
 
-  // 등갑 (하트형에 가깝게)
+  // 등갑 (하트형에 가깝게) — 위(광원쪽)는 밝고 가장자리로 갈수록 어두워지는 다단 그라디언트
   outline(ctx, STROKE.silhouette * s);
-  ctx.fillStyle = '#5cae7e';
+  ctx.fillStyle = multiGradient(ctx, 0, -13 * s, 0, 13 * s, [
+    [0, lerpColor('#5cae7e', '#ffffff', 0.32)], [0.4, '#5cae7e'], [0.75, lerpColor('#5cae7e', '#1c3d2c', 0.3)], [1, lerpColor('#5cae7e', '#1c3d2c', 0.5)],
+  ]);
   ctx.beginPath();
   ctx.moveTo(0, -13 * s);
   ctx.quadraticCurveTo(15 * s, -11 * s, 15 * s, 3 * s);
@@ -250,13 +266,16 @@ function drawSeaTurtle(ctx, x, y, t, s) {
   ctx.quadraticCurveTo(-15 * s, -11 * s, 0, -13 * s);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 갈색~올리브 얼룩
-  ctx.fillStyle = 'rgba(90,70,30,0.28)';
-  for (const [ox, oy, r] of [[-6, -4, 3], [5, -6, 2.4], [7, 4, 3], [-4, 7, 2.6], [1, -1, 2.2]]) {
-    ctx.beginPath(); ctx.ellipse(ox * s, oy * s, r * s, r * 0.7 * s, 0.3, 0, Math.PI * 2); ctx.fill();
+  // 갈색~올리브 얼룩 (결정적 노이즈로 크기/위치 흩뿌림)
+  for (let i = 0; i < 9; i++) {
+    const ox = (hash2(i, 1.7) - 0.5) * 24;
+    const oy = (hash2(i, 5.3) - 0.5) * 18;
+    const r = 2 + hash2(i, 9.1) * 2.6;
+    ctx.fillStyle = `rgba(90,70,30,${0.16 + hash2(i, 13) * 0.14})`;
+    ctx.beginPath(); ctx.ellipse(ox * s, oy * s, r * s, r * 0.7 * s, hash2(i, 2) * Math.PI, 0, Math.PI * 2); ctx.fill();
   }
-  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(4 * s, 4 * s, 12 * s, 8 * s, 0, 0, Math.PI * 2); }, 0.2);
-  // 육각 마디 무늬 (또렷하게)
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(4 * s, 4 * s, 12 * s, 8 * s, 0, 0, Math.PI * 2); }, 0.14);
+  // 육각 마디 무늬 (또렷하게) + 각 마디 안쪽 미세 융기선(스큐트 결)
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail * s;
   const hexAt = (cx, cy, r) => {
     ctx.beginPath();
@@ -266,11 +285,19 @@ function drawSeaTurtle(ctx, x, y, t, s) {
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath(); ctx.stroke();
+    // 융기 결 (마디 중심에서 두 방향으로 짧은 선)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = STROKE.detail * s * 0.6;
+    ctx.beginPath(); ctx.moveTo(cx - r * 0.35, cy - r * 0.15); ctx.lineTo(cx + r * 0.35, cy - r * 0.05); ctx.stroke();
+    ctx.strokeStyle = INK;
+    ctx.restore();
   };
   hexAt(0, -4 * s, 4.6 * s);
   hexAt(-7 * s, 4 * s, 4.2 * s);
   hexAt(7 * s, 4 * s, 4.2 * s);
   hexAt(0, 9 * s, 3.8 * s);
+  // 등갑 광택 하이라이트 (매끈한 각질 표면 반사)
+  hilite(ctx, () => { ctx.beginPath(); ctx.ellipse(-5 * s, -8 * s, 5 * s, 2.4 * s, -0.3, 0, Math.PI * 2); }, 0.3);
 
   // 머리 (부리모양 입)
   ctx.fillStyle = '#5cae7e';
@@ -293,7 +320,10 @@ function drawOrca(ctx, x, y, t, s) {
   ctx.translate(0, vwave);
 
   outline(ctx, STROKE.silhouette * s);
-  ctx.fillStyle = '#181B22';
+  // 젖은 피부 광택을 살린 다단 그라디언트 (등쪽 짙은 검정 → 옆면에 살짝 밝은 스틸 sheen)
+  ctx.fillStyle = multiGradient(ctx, 0, -14 * s, 0, 8 * s, [
+    [0, '#101216'], [0.4, '#181B22'], [0.7, '#242833'], [1, '#181B22'],
+  ]);
   ctx.beginPath();
   ctx.moveTo(-27 * s, 2 * s);
   ctx.quadraticCurveTo(-8 * s, -15 * s, 23 * s, -2 * s);
@@ -301,6 +331,27 @@ function drawOrca(ctx, x, y, t, s) {
   ctx.quadraticCurveTo(-8 * s, 15 * s, -27 * s, 2 * s);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
+  // 매끈한 피부 결 텍스처 (몸통 곡선을 따라 흐르는 아주 미세한 줄무늬, 결정적 노이즈로 고정)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = STROKE.detail * s * 0.6; ctx.lineCap = 'round';
+  for (let i = 0; i < 7; i++) {
+    const lx = -18 * s + i * 6 * s;
+    const ly = -4 * s + hash2(i, 4.4) * 8 * s;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.quadraticCurveTo(lx + 6 * s, ly - 1.5 * s, lx + 12 * s, ly - 0.5 * s);
+    ctx.stroke();
+  }
+  // 스펙큘러 하이라이트 스트리크 (물에 젖은 광택, 등에서 옆구리로 대각선)
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 1.6 * s; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-14 * s, -8 * s);
+  ctx.quadraticCurveTo(-2 * s, -11 * s, 10 * s, -7 * s);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.moveTo(-10 * s, -3 * s);
+  ctx.quadraticCurveTo(0, -5 * s, 8 * s, -2.5 * s);
+  ctx.stroke();
 
   // 흰 배
   ctx.fillStyle = '#F3F6F8';
