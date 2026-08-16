@@ -173,10 +173,15 @@ export function drawPlayer(ctx, player) {
 
   const finKick = Math.sin(player.swimPhase * 6.5) * 6;
   const armSwing = Math.sin(player.swimPhase * 6.5 + 1.4) * 3;
+  // 다이버 특유의 헤엄치는 자세감: 상하 이동 속도에 따라 몸 전체를 살짝 기울여
+  // 직립 원통형이 아니라 앞으로 나아가는 다이빙 자세처럼 보이게 한다.
+  const dive = clamp((player.vy ?? 0) / 220, -1, 1);
+  const tilt = dive * 0.22 + Math.sin(player.swimPhase * 6.5) * 0.03;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(facing, 1);
+  ctx.rotate(tilt);
 
   // 헤드램프 광원 (아래쪽/전방을 비추는 근거광)
   glow(ctx, 7, -18, 42, '#fff3c4', 0.32);
@@ -373,6 +378,22 @@ export function drawPlayer(ctx, player) {
   ctx.arc(8, -18, 1.7, 0, Math.PI * 2);
   ctx.fill();
   hilite(ctx, () => { ctx.beginPath(); ctx.arc(7.2, -18.8, 0.7, 0, Math.PI * 2); }, 0.8);
+
+  // ---- 숨 기포 트레일 (마스크 옆에서 주기적으로 떠오름, 다이빙 생동감) ----
+  const bubblePhase = player.swimPhase * 0.9;
+  for (let i = 0; i < 3; i++) {
+    const bt = (bubblePhase + i * 0.7) % 1.4;
+    if (bt > 1) continue;
+    const by = -12 - bt * 22;
+    const bx = 3 + Math.sin(bt * 7 + i) * 2.4;
+    const br = (0.9 + i * 0.35) * (1 - bt * 0.3);
+    ctx.save();
+    ctx.globalAlpha = 0.55 * (1 - bt);
+    ctx.strokeStyle = 'rgba(220,245,255,0.9)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
 
   ctx.restore();
 }
