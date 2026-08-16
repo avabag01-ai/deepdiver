@@ -94,7 +94,7 @@ function drawMorayEel(ctx, x, y, t, s) {
   ctx.translate(x, y);
   const wob = Math.sin(t * 3) * 6 * s;
   outline(ctx, STROKE.silhouette * s);
-  ctx.fillStyle = '#7a8a4e';
+  ctx.fillStyle = '#8a9a52';
   ctx.beginPath();
   ctx.moveTo(-18 * s, 14 * s);
   ctx.quadraticCurveTo(-10 * s + wob, -4 * s, 0, -14 * s);
@@ -104,13 +104,35 @@ function drawMorayEel(ctx, x, y, t, s) {
   ctx.fill(); ctx.stroke();
 
   shade(ctx, () => { ctx.beginPath(); ctx.ellipse(-2 * s, 4 * s, 8 * s, 12 * s, 0.2, 0, Math.PI * 2); }, 0.26);
-  // 벌린 입
+  // 표범무늬 반점 (곰치 특유의 얼룩무늬)
+  ctx.fillStyle = 'rgba(45, 40, 20, 0.55)';
+  const spots = [[-4, -6], [3, -10], [-9, 4], [1, 6], [-2, 10]];
+  for (const [sx, sy] of spots) {
+    ctx.beginPath();
+    ctx.ellipse((sx + wob * 0.15) * s, sy * s, 2 * s, 1.5 * s, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 등지느러미 프릴 (등을 따라 이어지는 얇은 지느러미)
+  ctx.strokeStyle = 'rgba(200, 220, 150, 0.6)'; ctx.lineWidth = STROKE.detail * s;
+  ctx.beginPath();
+  ctx.moveTo(1 * s, -13 * s);
+  ctx.quadraticCurveTo(8 * s + wob * 0.3, -6 * s, 10 * s, -14.5 * s);
+  ctx.stroke();
+  // 벌린 입 + 콧구멍
   outline(ctx, STROKE.detail * s);
   ctx.fillStyle = '#3a2a2a';
   ctx.beginPath();
   ctx.ellipse(9 * s, -13 * s, 3.2 * s, 2 * s, 0.4, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
-  eye(ctx, 11 * s, -17 * s, 1.6 * s, { open: false });
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.8 * s;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo((8.5 + i * 0.6) * s, -14.4 * s); ctx.lineTo((9 + i * 0.6) * s, -13.6 * s);
+    ctx.stroke();
+  }
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(12.5 * s, -15.5 * s, 0.5 * s, 0, Math.PI * 2); ctx.fill();
+  eye(ctx, 11 * s, -17 * s, 1.8 * s, { open: false });
   ctx.restore();
 }
 
@@ -342,21 +364,36 @@ function drawGiantIsopod(ctx, x, y, t, s) {
 function drawTubeWorms(ctx, x, y, t, s) {
   ctx.save();
   ctx.translate(x, y);
-  const tubes = [-10, 0, 10];
-  for (const tx of tubes) {
-    const h = 26 * s + Math.sin(t + tx) * 1.5 * s;
+  const tubes = [[-11, 24], [-3, 30], [6, 22], [13, 27]];
+  for (const [tx, baseH] of tubes) {
+    const h = baseH * s + Math.sin(t + tx) * 1.5 * s;
     outline(ctx, STROKE.part * s);
-    ctx.fillStyle = '#e8e2d6';
+    ctx.fillStyle = '#efe8da';
     ctx.beginPath();
-    ctx.rect(tx * s - 2.4 * s, -h * 0.1, 4.8 * s, h);
+    ctx.rect(tx * s - 2.2 * s, -h * 0.12, 4.4 * s, h);
     ctx.fill(); ctx.stroke();
-    shade(ctx, () => ctx.rect(tx * s, -h * 0.1, 2.4 * s, h), 0.22);
+    shade(ctx, () => ctx.rect(tx * s, -h * 0.12, 2.2 * s, h), 0.2);
+    // 마디 밴드 텍스처
+    ctx.strokeStyle = rgba(INK, 0.3); ctx.lineWidth = STROKE.detail * s;
+    for (let b = 1; b < 4; b++) {
+      const by = -h * 0.12 + (h * b) / 4;
+      ctx.beginPath(); ctx.moveTo(tx * s - 2.2 * s, by); ctx.lineTo(tx * s + 2.2 * s, by); ctx.stroke();
+    }
 
-    ctx.fillStyle = '#d43a4a';
+    // 아가미 깃털 (붉은 몸통 + 하얀 깃털 필라멘트)
+    ctx.fillStyle = '#e8465a';
     ctx.beginPath();
-    ctx.ellipse(tx * s, -h * 0.1, 4 * s, 7 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(tx * s, -h * 0.12, 3.8 * s, 6.5 * s, 0, 0, Math.PI * 2);
     outline(ctx, STROKE.detail * s);
     ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.9 * s; ctx.lineCap = 'round';
+    for (let f = -2; f <= 2; f++) {
+      const fx = tx * s + f * 1.4 * s;
+      ctx.beginPath();
+      ctx.moveTo(fx, -h * 0.12 - 5 * s);
+      ctx.lineTo(fx + Math.sin(t * 1.5 + f) * 0.8 * s, -h * 0.12 + 3 * s);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -598,22 +635,47 @@ function drawHatchetfish(ctx, x, y, t, s) {
 function drawStiltCrab(ctx, x, y, t, s) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part * s;
-  ctx.fillStyle = '#c9a9c2';
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part * s; ctx.lineCap = 'round';
+  ctx.fillStyle = '#d4b3cc';
   for (let i = -3; i <= 3; i++) {
     if (i === 0) continue;
     const legLen = 20 * s;
     const ang = i * 0.32;
+    const kneeX = Math.sin(ang) * legLen * 0.55;
+    const kneeY = legLen * 0.5 + Math.cos(t + i) * 1.5 * s;
+    const footX = Math.sin(ang) * legLen;
+    const footY = Math.cos(t + i) * 2 * s + legLen * 0.85;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(Math.sin(ang) * legLen, Math.cos(t + i) * 2 * s + legLen * 0.8);
+    ctx.lineTo(kneeX, kneeY);
+    ctx.lineTo(footX, footY);
+    ctx.stroke();
+    // 발끝 작은 집게
+    ctx.beginPath();
+    ctx.moveTo(footX, footY);
+    ctx.lineTo(footX + Math.sign(footX || 1) * 2.5 * s, footY + 2.5 * s);
     ctx.stroke();
   }
+  // 작은 앞집게발
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail * s;
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(dir * 2 * s, 2 * s);
+    ctx.lineTo(dir * 6 * s, 8 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#d4b3cc';
+    ctx.beginPath(); ctx.ellipse(dir * 6.5 * s, 9 * s, 2 * s, 1.3 * s, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
   outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#d4b3cc';
   ctx.beginPath();
   ctx.ellipse(0, -2 * s, 7 * s, 5 * s, 0, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
   shade(ctx, () => ellipsePath(ctx, 1 * s, 0, 5 * s, 3 * s), 0.24);
+  // 등딱지 무늬선
+  ctx.strokeStyle = rgba(INK, 0.3); ctx.lineWidth = STROKE.detail * s;
+  ctx.beginPath(); ctx.moveTo(-4 * s, -3 * s); ctx.lineTo(4 * s, -3 * s); ctx.stroke();
   eye(ctx, 3 * s, -4 * s, 1.3 * s);
   eye(ctx, -3 * s, -4 * s, 1.3 * s);
   ctx.restore();
@@ -637,10 +699,28 @@ function drawGlassShrimp(ctx, x, y, t, s) {
   for (let i = -1; i <= 2; i++) {
     ctx.beginPath(); ctx.moveTo(-2 * s + i * 4 * s, -3 * s); ctx.lineTo(-4 * s + i * 4 * s, 2 * s); ctx.stroke();
   }
+  // 작은 유영각 (마디 아래 다리)
+  ctx.strokeStyle = 'rgba(160,195,215,0.9)'; ctx.lineWidth = 0.8 * s;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath(); ctx.moveTo(i * 4 * s, 0); ctx.lineTo(i * 4 * s - 1 * s, 4 * s); ctx.stroke();
+  }
+  // 꼬리 부채
+  ctx.fillStyle = 'rgba(190, 220, 232, 0.55)';
   ctx.beginPath();
-  ctx.moveTo(-14 * s, 0); ctx.lineTo(-20 * s, -3 * s); ctx.lineTo(-20 * s, 3 * s); ctx.closePath();
-  ctx.fillStyle = 'rgba(200, 225, 235, 0.5)'; ctx.fill(); ctx.stroke();
-  eye(ctx, 8 * s, -5 * s, 1.4 * s);
+  ctx.moveTo(-14 * s, 0); ctx.lineTo(-21 * s, -4 * s); ctx.lineTo(-18 * s, 0); ctx.lineTo(-21 * s, 4 * s);
+  ctx.closePath();
+  outline(ctx, STROKE.detail * s); ctx.fill(); ctx.stroke();
+  // 더듬이 (긴 촉수 두 가닥)
+  ctx.strokeStyle = 'rgba(170,205,222,0.85)'; ctx.lineWidth = 0.8 * s;
+  ctx.beginPath();
+  ctx.moveTo(10 * s, -4 * s);
+  ctx.quadraticCurveTo(18 * s, -8 * s, 24 * s, -5 * s + Math.sin(t * 2) * 2 * s);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(10 * s, -4 * s);
+  ctx.quadraticCurveTo(16 * s, -2 * s, 22 * s, 1 * s + Math.sin(t * 2 + 1) * 2 * s);
+  ctx.stroke();
+  eye(ctx, 8 * s, -5 * s, 1.6 * s);
   ctx.restore();
 }
 
@@ -810,15 +890,28 @@ function drawDandelionJelly(ctx, x, y, t, s) {
 function drawScalyfootSnail(ctx, x, y, t, s) {
   ctx.save();
   ctx.translate(x, y);
+  glow(ctx, 6 * s, -4 * s, 10 * s, '#ff9d5c', 0.18);
   outline(ctx, STROKE.silhouette * s);
   ctx.fillStyle = '#4a3d33';
   ctx.beginPath();
   ctx.ellipse(2 * s, 4 * s, 12 * s, 6 * s, 0, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
   shade(ctx, () => ellipsePath(ctx, 4 * s, 6 * s, 9 * s, 3.5 * s), 0.26);
+  // 발 비늘 텍스처 (여러 줄, 철빛 광택 포인트 포함)
+  for (let row = -1; row <= 1; row++) {
+    for (let i = -2; i <= 2; i++) {
+      const sx = i * 4 * s + 2 * s + row * 1.5 * s;
+      const sy = (6 + row * 2.4) * s;
+      ctx.fillStyle = '#6b5a48';
+      ctx.beginPath(); ctx.arc(sx, sy, 1.4 * s, 0, Math.PI * 2); ctx.fill();
+      outline(ctx, STROKE.detail * s * 0.7); ctx.stroke();
+      ctx.fillStyle = 'rgba(220,200,170,0.5)';
+      ctx.beginPath(); ctx.arc(sx - 0.4 * s, sy - 0.4 * s, 0.5 * s, 0, Math.PI * 2); ctx.fill();
+    }
+  }
   // 나선 껍질
   outline(ctx, STROKE.part * s);
-  ctx.fillStyle = '#2f261f';
+  ctx.fillStyle = '#332920';
   ctx.beginPath();
   ctx.arc(-2 * s, -2 * s, 9 * s, 0.4, Math.PI * 1.6);
   ctx.arc(1 * s, -1 * s, 5 * s, Math.PI * 1.3, 0.2, true);
@@ -826,10 +919,18 @@ function drawScalyfootSnail(ctx, x, y, t, s) {
   ctx.fill(); ctx.stroke();
   ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = STROKE.detail * s;
   ctx.beginPath(); ctx.arc(-2 * s, -2 * s, 5.5 * s, 0.4, Math.PI * 1.4); ctx.stroke();
-  // 발 비늘 텍스처
-  ctx.fillStyle = '#6b5a48';
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath(); ctx.arc(i * 4 * s + 2 * s, 7 * s, 1.4 * s, 0, Math.PI * 2); ctx.fill();
+  // 철빛 금속 광택 하이라이트 (호 형태로 곡면을 따라)
+  ctx.strokeStyle = 'rgba(255, 205, 150, 0.55)'; ctx.lineWidth = STROKE.detail * s * 0.8;
+  ctx.beginPath(); ctx.arc(-2 * s, -2 * s, 8 * s, 0.9, 1.7); ctx.stroke();
+  // 더듬이 (눈자루)
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail * s;
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(11 * s, 1 * s);
+    ctx.lineTo(13 * s + dir * 1.5 * s, -3 * s + Math.sin(t + dir) * 0.8 * s);
+    ctx.stroke();
+    ctx.fillStyle = '#5c4c3d';
+    ctx.beginPath(); ctx.arc(13 * s + dir * 1.5 * s, -3 * s + Math.sin(t + dir) * 0.8 * s, 0.9 * s, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
 }

@@ -3,7 +3,14 @@
 // 일정 범위 안에서 상하로도 자유롭게 움직일 수 있다(좁은 통로에서 생물을 상하로 피하기 위함).
 // 배경/지형/생물이 위로 스크롤되는 방식(무한 스크롤 표준 구현)이다.
 
-import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, eye, glow, clamp } from './utils.js';
+import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, eye, glow, clamp, rgba } from './utils.js';
+
+function outline(ctx, w) {
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = w;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+}
 
 export const PLAYER_ANCHOR_Y = CANVAS_H * 0.72; // 기본(중립) y — 세로 이동 범위의 중심
 export const PLAYER_RADIUS = 16; // 시각 크기 기준 (충돌 반경은 game.js에서 0.6배 적용)
@@ -140,86 +147,232 @@ export function updatePlayer(player, dtSec, timeSec) {
   player.visualYOffset = kick + slow;
 }
 
+// 다이버 배색 — 참고 이미지(화사한 카드 아이콘 스타일)에 맞춘 밝고 채도 높은 팔레트.
+// 주변 생물들과 겹치지 않는 청록+노랑 조합으로 "이 캐릭터가 주인공"임을 실루엣만으로도 알 수 있게 함.
+const SUIT_MAIN = '#2FB0AE';      // 웻슈트 메인 (밝은 청록)
+const SUIT_PANEL = '#0E7C82';     // 가슴판/다리 구역 음영 패널 (짙은 청록)
+const SUIT_ACCENT = '#FFD34D';    // 어깨/옆선 포인트 (밝은 노랑)
+const SUIT_BELT = '#1B3A4B';      // 벨트·지퍼 (짙은 남색)
+const TANK_COLOR = '#CFDBE2';     // 산소통 몸체 (은회색)
+const TANK_SHADE = '#9FB2BC';
+const VALVE_COLOR = '#E14B3F';    // 산소통 밸브 (빨강)
+const FIN_COLOR = '#FFD34D';      // 오리발 (밝은 노랑)
+const FIN_SHADE = '#E0AA2A';
+const GLOVE_COLOR = '#1B3A4B';
+const SKIN_COLOR = '#FBCB98';
+const MASK_RIM_OUTER = '#16233B';
+const MASK_RIM_INNER = '#3A4F63'; // 마스크 테두리 고무 질감 이중 윤곽
+const GLASS_COLOR = 'rgba(196, 238, 255, 0.88)';
+const LAMP_BODY = '#FFE07A';
+const LAMP_LENS = '#FFFBEA';
+
 export function drawPlayer(ctx, player) {
   const x = player.x;
   const y = player.y + player.visualYOffset;
   const facing = player.facing;
+
+  const finKick = Math.sin(player.swimPhase * 6.5) * 6;
+  const armSwing = Math.sin(player.swimPhase * 6.5 + 1.4) * 3;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(facing, 1);
 
   // 헤드램프 광원 (아래쪽/전방을 비추는 근거광)
-  glow(ctx, 6, -2, 46, '#fff3c4', 0.35);
+  glow(ctx, 7, -18, 42, '#fff3c4', 0.32);
 
-  // 산소통 (몸 뒤쪽)
+  // ---- 산소통 (등 뒤에 옆모습으로 살짝 걸치게) ----
   ctx.save();
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = '#c9432f';
+  ctx.fillStyle = TANK_COLOR;
   ctx.beginPath();
-  ctx.roundRect(-13, -14, 8, 24, 3);
+  ctx.roundRect(-16, -19, 8, 27, 3.5);
   ctx.fill(); ctx.stroke();
+  shade(ctx, () => { ctx.beginPath(); ctx.roundRect(-13, -19, 5, 27, 3); }, 0.22);
+  // 탱크 밸브 + 라벨 링
+  ctx.fillStyle = VALVE_COLOR;
+  ctx.beginPath(); ctx.roundRect(-14.5, -23, 5, 4.5, 1.5); ctx.fill();
+  outline(ctx, STROKE.detail); ctx.stroke();
+  ctx.strokeStyle = rgba(INK, 0.35); ctx.lineWidth = STROKE.detail;
+  ctx.beginPath(); ctx.moveTo(-16, -8); ctx.lineTo(-8, -8); ctx.stroke();
+  // 호스 라인: 밸브에서 마스크 쪽으로 곡선으로 이어짐
+  ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 2.1; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-12, -21);
+  ctx.quadraticCurveTo(-2, -19 + Math.sin(player.swimPhase * 3) * 1.5, 4, -14);
+  ctx.stroke();
   ctx.restore();
 
-  // 몸통 (둥근 2등신)
+  // ---- 뒤쪽 팔 (몸 뒤에서 살짝 보이는 팔, 입체감용) ----
+  ctx.save();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
+  ctx.fillStyle = SUIT_MAIN;
+  ctx.beginPath();
+  ctx.ellipse(-9, 4 - armSwing * 0.2, 4, 8.5, 0.35, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(-9, 6 - armSwing * 0.2, 3, 6, 0.35, 0, Math.PI * 2); }, 0.24);
+  ctx.fillStyle = GLOVE_COLOR;
+  ctx.beginPath(); ctx.arc(-11, 10 - armSwing * 0.2, 2.6, 0, Math.PI * 2);
+  outline(ctx, STROKE.detail); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // ---- 오리발 (핀) — 뚜렷한 부채꼴 핀 날 + 스트랩 ----
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
+  ctx.fillStyle = FIN_COLOR;
+  ctx.beginPath();
+  ctx.moveTo(-5, 19);
+  ctx.lineTo(5, 19);
+  ctx.quadraticCurveTo(6 + finKick * 0.3, 26, 4 + finKick, 34);
+  ctx.quadraticCurveTo(8 + finKick, 38, 6 + finKick, 44);
+  ctx.quadraticCurveTo(0 + finKick * 0.7, 40, -2 + finKick * 0.6, 34);
+  ctx.quadraticCurveTo(-4, 26, -5, 19);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  shade(ctx, () => {
+    ctx.beginPath();
+    ctx.moveTo(0, 22);
+    ctx.quadraticCurveTo(5 + finKick * 0.5, 30, 3 + finKick, 40);
+    ctx.lineTo(-1 + finKick * 0.6, 34);
+    ctx.quadraticCurveTo(-2, 27, 0, 22);
+  }, 0.24);
+  // 핀 골(리브) 라인 디테일
+  ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = STROKE.detail;
+  ctx.beginPath();
+  ctx.moveTo(0, 24); ctx.quadraticCurveTo(2 + finKick * 0.5, 32, 1 + finKick, 40);
+  ctx.stroke();
+  // 발 스트랩
+  ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-4.5, 21); ctx.lineTo(4.5, 21); ctx.stroke();
+  outline(ctx, STROKE.detail);
+  ctx.beginPath(); ctx.moveTo(-4.5, 21); ctx.lineTo(4.5, 21); ctx.stroke();
+
+  // ---- 몸통 (웻슈트, 색 분할 + 지퍼 + 벨트) ----
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
-  ctx.fillStyle = '#2f8fd6';
+  ctx.fillStyle = SUIT_MAIN;
   ctx.beginPath();
   ctx.ellipse(0, 8, 13, 15, 0, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
-  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(4, 14, 10, 9, 0, 0, Math.PI * 2); }, 0.24);
 
-  // 물갈퀴 (오리발)
-  const finKick = Math.sin(player.swimPhase * 6.5) * 6;
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = '#1b3a63';
+  // 가슴판 (짙은 색 패널로 구역 분할)
+  ctx.fillStyle = SUIT_PANEL;
   ctx.beginPath();
-  ctx.moveTo(-4, 20);
-  ctx.quadraticCurveTo(-2 + finKick * 0.5, 30, -3 + finKick, 40);
-  ctx.quadraticCurveTo(2 + finKick, 42, 4 + finKick, 36);
-  ctx.quadraticCurveTo(3, 26, 3, 20);
+  ctx.moveTo(-7, -2);
+  ctx.quadraticCurveTo(0, 2, 7, -2);
+  ctx.quadraticCurveTo(6, 10, 0, 15);
+  ctx.quadraticCurveTo(-6, 10, -7, -2);
   ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // 스트랩 라인 디테일
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail;
-  ctx.beginPath(); ctx.moveTo(-3, 22); ctx.lineTo(3, 22); ctx.stroke();
-
-  // 손목밴드 팔
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = '#2f8fd6';
-  ctx.beginPath();
-  ctx.ellipse(10, 2 + finKick * 0.15, 4.5, 9, -0.5, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  ctx.strokeStyle = '#e8c94a'; ctx.lineWidth = STROKE.detail;
-  ctx.beginPath(); ctx.arc(12, 8, 3.2, 0, Math.PI * 2); ctx.stroke();
-
-  // 머리 + 큰 마스크
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
-  ctx.fillStyle = '#f2c79c';
-  ctx.beginPath();
-  ctx.ellipse(2, -10, 12, 11, 0, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-
-  // 마스크 유리
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = 'rgba(200, 235, 255, 0.85)';
-  ctx.beginPath();
-  ctx.ellipse(5, -9, 9, 7.5, 0, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  // 유리 반사광
-  hilite(ctx, () => { ctx.beginPath(); ctx.ellipse(3, -12, 3.5, 2, -0.4, 0, Math.PI * 2); }, 0.55);
-  eye(ctx, 7, -9, 2.2);
-
-  // 헤드램프 본체
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail;
-  ctx.fillStyle = '#e8d24a';
-  ctx.beginPath();
-  ctx.arc(8, -17, 3.4, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#fff8dc';
-  ctx.beginPath();
-  ctx.arc(8, -17, 1.6, 0, Math.PI * 2);
   ctx.fill();
+  outline(ctx, STROKE.part); ctx.stroke();
+
+  // 어깨 포인트 스트라이프 (화사한 노랑 악센트)
+  ctx.strokeStyle = SUIT_ACCENT; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-9, -4); ctx.quadraticCurveTo(-11, 2, -8, 9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9, -4); ctx.quadraticCurveTo(11, 2, 8, 9); ctx.stroke();
+  outline(ctx, STROKE.detail);
+  ctx.beginPath(); ctx.moveTo(-9, -4); ctx.quadraticCurveTo(-11, 2, -8, 9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9, -4); ctx.quadraticCurveTo(11, 2, 8, 9); ctx.stroke();
+
+  // 지퍼 라인 (중앙)
+  ctx.strokeStyle = rgba(INK, 0.55); ctx.lineWidth = STROKE.detail; ctx.setLineDash([1.6, 1.6]);
+  ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(0, 14); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 벨트
+  ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 3.2;
+  ctx.beginPath(); ctx.moveTo(-9, 13); ctx.quadraticCurveTo(0, 16, 9, 13); ctx.stroke();
+  ctx.fillStyle = SUIT_ACCENT;
+  ctx.beginPath(); ctx.roundRect(-2.4, 12, 4.8, 3.4, 1); ctx.fill();
+  outline(ctx, STROKE.detail); ctx.stroke();
+
+  // 하단 음영 (셀셰이딩 3톤 — 잉크 반투명 레이어)
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(4, 15, 9, 7, 0, 0, Math.PI * 2); }, 0.2);
+
+  // ---- 앞쪽 팔 + 장갑 ----
+  ctx.save();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
+  ctx.fillStyle = SUIT_MAIN;
+  ctx.beginPath();
+  ctx.ellipse(10, 2 + armSwing * 0.3, 4.5, 9, -0.5, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(12, 4 + armSwing * 0.3, 3, 6.5, -0.5, 0, Math.PI * 2); }, 0.22);
+  ctx.strokeStyle = SUIT_ACCENT; ctx.lineWidth = STROKE.detail;
+  ctx.beginPath(); ctx.arc(12, 8 + armSwing * 0.3, 3.2, 0, Math.PI * 2); ctx.stroke();
+  // 장갑
+  ctx.fillStyle = GLOVE_COLOR;
+  ctx.beginPath(); ctx.arc(13, 11 + armSwing * 0.3, 3, 0, Math.PI * 2);
+  outline(ctx, STROKE.detail); ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // ---- 머리 (피부) ----
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
+  ctx.fillStyle = SKIN_COLOR;
+  ctx.beginPath();
+  ctx.ellipse(2, -9.5, 12, 12, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  shade(ctx, () => { ctx.beginPath(); ctx.ellipse(-3, -5.5, 7, 6, 0, 0, Math.PI * 2); }, 0.16);
+
+  // ---- 마스크 (이중 윤곽 고무 테두리 + 큰 유리) — 턱 아래로 살짝 여백을 남겨 표정이 드러나게 함 ----
+  // 바깥 고무 테두리
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
+  ctx.fillStyle = MASK_RIM_OUTER;
+  ctx.beginPath();
+  ctx.ellipse(5, -10.5, 10.2, 7.6, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  // 안쪽 고무 테두리 (질감 이중선)
+  ctx.strokeStyle = MASK_RIM_INNER; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.ellipse(5, -10.5, 9.2, 6.7, 0, 0, Math.PI * 2); ctx.stroke();
+  // 유리
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
+  ctx.fillStyle = GLASS_COLOR;
+  ctx.beginPath();
+  ctx.ellipse(5, -10.5, 8.4, 6, 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+
+  // 유리 반사광 (큰 하이라이트 + 작은 스파클)
+  hilite(ctx, () => { ctx.beginPath(); ctx.ellipse(2, -14, 3.6, 2, -0.4, 0, Math.PI * 2); }, 0.6);
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.moveTo(10.5, -14.5); ctx.lineTo(11.6, -12.8); ctx.lineTo(10.5, -11.1); ctx.lineTo(9.4, -12.8);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // 눈썹 (표정 포인트)
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(2.5, -16); ctx.quadraticCurveTo(5, -17.8, 8, -16.3); ctx.stroke();
+
+  // 눈 (크게 + 반짝임)
+  eye(ctx, 7, -10.5, 2.8, { glow: null });
+
+  // 마스크 아래(턱)로 드러난 입 (살짝 웃는 표정) — 마스크 바깥 테두리보다 아래에 위치시켜 가려지지 않게 함
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(1, 0.3);
+  ctx.quadraticCurveTo(4.5, 3, 8.5, 0.8);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(200,90,80,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(1.3, 0.3); ctx.quadraticCurveTo(4.5, 2.6, 8.2, 0.7); ctx.quadraticCurveTo(4.5, 2, 1.3, 0.3);
+  ctx.fill();
+  // 볼터치 (생기 포인트)
+  ctx.fillStyle = 'rgba(255,150,140,0.35)';
+  ctx.beginPath(); ctx.ellipse(-3.5, -3, 2.2, 1.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  // ---- 헤드램프 (스트랩 + 몸체 + 렌즈) ----
+  ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.moveTo(-6, -16); ctx.quadraticCurveTo(2, -21, 9, -17); ctx.stroke();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail;
+  ctx.fillStyle = LAMP_BODY;
+  ctx.beginPath();
+  ctx.arc(8, -18, 3.8, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(8, -18, 2.6, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = LAMP_LENS;
+  ctx.beginPath();
+  ctx.arc(8, -18, 1.7, 0, Math.PI * 2);
+  ctx.fill();
+  hilite(ctx, () => { ctx.beginPath(); ctx.arc(7.2, -18.8, 0.7, 0, Math.PI * 2); }, 0.8);
 
   ctx.restore();
 }
