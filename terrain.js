@@ -8,7 +8,7 @@
 
 import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, rgba, glow, stairStack, hash2, lerpColor } from './utils.js';
 
-const FG_MAX_WIDTH_RATIO = 0.4;
+const FG_MAX_WIDTH_RATIO = 0.3;
 const FG_MAX_WIDTH = CANVAS_W * FG_MAX_WIDTH_RATIO;
 
 // 지형은 짧은 덩어리가 아니라 벽처럼 세로로 길게 이어진 형태여야 한다
@@ -94,22 +94,37 @@ export function createDistantChunk(zoneId, side, spawnY) {
 //
 // jitterAmp>0이면 매끈한 사인 곡선 위에 결정적 해시 노이즈를 더해 손그림 같은
 // 매끈함 대신 자연물다운 미세한 요철을 만든다(같은 seed+localY엔 항상 같은 값).
+// 추가로 "chunky" 항은 굵은 단위로 양자화한 해시값을 쓰기 때문에, 그 구간 안의
+// 모든 샘플 포인트가 같은 큰 오프셋을 공유하다가 다음 구간에서 갑자기 값이
+// 바뀌는 계단식 턱을 만든다 — 로우폴리 암석처럼 각진 돌출/함몰을 표현한다.
 function innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp) {
   const n = Math.sin(localY * freq + seed) * 0.6 + Math.sin(localY * freq * 2.3 + seed * 1.7) * 0.4;
-  const jitter = jitterAmp ? (hash2(Math.round(localY * 0.4), seed) - 0.5) * 2 * jitterAmp : 0;
-  return innerX + dir * (amp * 0.5 + amp * 0.5 * n + jitter);
+  const fineJitter = jitterAmp ? (hash2(Math.round(localY * 0.4), seed) - 0.5) * 2 * jitterAmp : 0;
+  const chunkyStep = 44;
+  const chunkyJitter = jitterAmp
+    ? (hash2(Math.floor(localY / chunkyStep), seed + 91.3) - 0.5) * 2 * (jitterAmp * 1.7)
+    : 0;
+  return innerX + dir * (amp * 0.5 + amp * 0.5 * n + fineJitter + chunkyJitter);
 }
 
 // chunk: {x,y,width,height,seed,side} — 로컬 좌표로 구울 때는 x=0,y=0인 사본을 넘긴다.
+// 위/아래 캡(조각의 시작/끝 가로선)도 일직선 대신 잘게 꺾어서, 조각이 이어지거나
+// 스폰/소멸하는 지점이 "딱 떨어지는 사각형"처럼 보이지 않게 한다.
 function buildWallPath(ctx, chunk, amp, freq, sampleStep, jitterAmp = 0) {
   const { x, y, width, height, seed, side } = chunk;
   const dir = side === 'left' ? 1 : -1;
   const innerX = side === 'left' ? x + width : x; // 통로에 접한 안쪽 경계
   const outerX = side === 'left' ? x : x + width;  // 화면 벽에 붙은 바깥 경계
+  const capJit = jitterAmp || 2;
 
   ctx.beginPath();
   ctx.moveTo(outerX, y);
-  ctx.lineTo(innerX, y);
+  const capSteps = 3;
+  for (let i = 1; i <= capSteps; i++) {
+    const cx = outerX + dir * (width * (i / capSteps));
+    const cy = y + (hash2(seed + i * 2.3, 401) - 0.5) * capJit * 2.4;
+    ctx.lineTo(cx, cy);
+  }
   const steps = Math.max(4, Math.round(height / sampleStep));
   for (let i = 1; i <= steps; i++) {
     const localY = (height * i) / steps; // 조각 기준 상대 위치 — chunk.y와 무관, 스크롤해도 고정된 모양 유지
@@ -117,7 +132,11 @@ function buildWallPath(ctx, chunk, amp, freq, sampleStep, jitterAmp = 0) {
     const sx = innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp);
     ctx.lineTo(sx, sy);
   }
-  ctx.lineTo(outerX, y + height);
+  for (let i = 1; i <= capSteps; i++) {
+    const cx = innerX - dir * (width * (i / capSteps));
+    const cy = y + height + (hash2(seed + i * 3.7, 402) - 0.5) * capJit * 2.4;
+    ctx.lineTo(cx, cy);
+  }
   ctx.closePath();
 }
 
@@ -132,6 +151,116 @@ function blob(ctx, cx, cy, r, seed, sides = 6, squashY = 0.85) {
     if (s === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
   }
   ctx.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// 생태계 장식 — 말미잘 / 불가사리 / 미니 산호 군락. "바다 생태계를 배우는 느낌"을
+// 주기 위해 구역별로 색감을 다르게(표층=화사, 심해/열수구=창백·발광) 구성한다.
+// 전부 오프스크린 캐시(bake) 단계에서 한 번만 그려 성능 부담이 없다.
+const DECOR_PALETTE = {
+  shallow: {
+    anemones: [
+      { base: '#c93f7e', tentacle: '#ff7fc4', tip: '#ffe0f0' },
+      { base: '#d9762a', tentacle: '#ffb15c', tip: '#ffe9c8' },
+    ],
+    starfish: ['#e8452f', '#ff7a3c', '#e0862f'],
+  },
+  twilight: {
+    anemones: [{ base: '#6a4a94', tentacle: '#a888e0', tip: '#e4d8ff' }],
+    coral: { branch: '#7b8aa4', tip: '#aebfdc' },
+    starfish: ['#c96b4a', '#b8583c'],
+  },
+  deepsea: {
+    anemones: [{ base: '#3e2f5c', tentacle: '#7a5aa0', tip: '#c4a8ff' }],
+    coral: { branch: '#3a4560', tip: '#5f70a0' },
+    starfish: ['#8a4a3a', '#6a3a30'],
+    glow: '#bfa0ff',
+  },
+  vent: {
+    anemones: [{ base: '#8a7862', tentacle: '#f0dab0', tip: '#fff2d8' }],
+    starfish: ['#d99a5a', '#e8b878'],
+    glow: '#ffcf8a',
+  },
+};
+
+// 말미잘: 짧은 촉수 다발이 faceDir(벽면→통로) 방향으로 부채꼴로 펼쳐진 모습.
+// 정적 이미지라 실제로 흔들리진 않지만, 살짝 휘어진 촉수 곡선으로 "살랑거리는
+// 중간 한 컷"을 흉내낸다.
+function drawAnemone(tctx, cx, cy, faceDir, seed, palette, scale = 1) {
+  tctx.save();
+  tctx.translate(cx, cy);
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const spread = (i / (n - 1) - 0.5) * Math.PI * 0.95;
+    const dx = Math.cos(spread) * faceDir;
+    const dy = Math.sin(spread);
+    const len = (6 + hash2(seed + i, 7) * 5) * scale;
+    const bend = (hash2(seed + i, 11) - 0.5) * 5 * scale;
+    tctx.strokeStyle = palette.tentacle;
+    tctx.lineWidth = 1.3 * scale;
+    tctx.lineCap = 'round';
+    tctx.beginPath();
+    tctx.moveTo(0, 0);
+    tctx.quadraticCurveTo(dx * len * 0.55 + bend * 0.4, dy * len * 0.55 - 1.5 * scale, dx * len + bend, dy * len - 2 * scale);
+    tctx.stroke();
+    tctx.fillStyle = palette.tip;
+    tctx.beginPath(); tctx.arc(dx * len + bend, dy * len - 2 * scale, 0.9 * scale, 0, Math.PI * 2); tctx.fill();
+  }
+  // 밑동
+  tctx.fillStyle = palette.base;
+  tctx.strokeStyle = rgba(INK, 0.4);
+  tctx.lineWidth = 0.6 * scale;
+  tctx.beginPath(); tctx.ellipse(0, 0, 3.2 * scale, 2 * scale, 0, 0, Math.PI * 2); tctx.fill(); tctx.stroke();
+  tctx.restore();
+}
+
+// 불가사리: 5각 별 모양, 표면에 붙어 있는 정적 장식
+function drawStarfish(tctx, cx, cy, seed, color, scale = 1) {
+  tctx.save();
+  tctx.translate(cx, cy);
+  tctx.rotate(hash2(seed, 5) * Math.PI * 2);
+  tctx.fillStyle = color;
+  tctx.strokeStyle = rgba(INK, 0.4);
+  tctx.lineWidth = 0.7 * scale;
+  const spikes = 5, outerR = 5 * scale, innerR = 2.1 * scale;
+  tctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const ang = (Math.PI * i) / spikes - Math.PI / 2;
+    const px = Math.cos(ang) * r, py = Math.sin(ang) * r;
+    if (i === 0) tctx.moveTo(px, py); else tctx.lineTo(px, py);
+  }
+  tctx.closePath();
+  tctx.fill(); tctx.stroke();
+  tctx.fillStyle = 'rgba(255,255,255,0.28)';
+  for (let i = 0; i < spikes; i++) {
+    const ang = (Math.PI * 2 * i) / spikes - Math.PI / 2 + hash2(seed + i, 9) * 0.3;
+    const r = 2.4 * scale;
+    tctx.beginPath(); tctx.arc(Math.cos(ang) * r, Math.sin(ang) * r, 0.5 * scale, 0, Math.PI * 2); tctx.fill();
+  }
+  tctx.restore();
+}
+
+// 미니 산호 군락 (일반 암반 구역용 — 산호초 구역보다 작고 드문 point-of-interest)
+function drawMiniCoral(tctx, cx, cy, faceDir, seed, palette, scale = 1) {
+  tctx.save();
+  tctx.translate(cx, cy);
+  for (let i = 0; i < 3; i++) {
+    const ang = (i - 1) * 0.55;
+    const len = (5 + hash2(seed + i, 3) * 4) * scale;
+    const dx = Math.cos(ang) * faceDir;
+    const dy = Math.sin(ang) - 0.3;
+    tctx.strokeStyle = palette.branch;
+    tctx.lineWidth = 1.7 * scale;
+    tctx.lineCap = 'round';
+    tctx.beginPath();
+    tctx.moveTo(0, 0);
+    tctx.lineTo(dx * len, dy * len);
+    tctx.stroke();
+    tctx.fillStyle = palette.tip;
+    tctx.beginPath(); tctx.arc(dx * len, dy * len, 1.3 * scale, 0, Math.PI * 2); tctx.fill();
+  }
+  tctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -155,8 +284,8 @@ function bakeRock(chunk, zoneId) {
   tctx.fillStyle = isFg ? grad : style.bg;
   if (isFg) { tctx.strokeStyle = INK; tctx.lineWidth = STROKE.silhouette; }
 
-  const sampleStep = isFg ? 18 : 46;
-  const jitter = isFg ? 4.6 : 1.4;
+  const sampleStep = isFg ? 15 : 46;
+  const jitter = isFg ? 8.5 : 1.4;
   buildWallPath(tctx, local, 22, 0.014, sampleStep, jitter);
   tctx.fill();
   if (isFg) tctx.stroke();
@@ -231,6 +360,25 @@ function bakeRock(chunk, zoneId) {
     tctx.moveTo(wx, wy);
     tctx.lineTo(wx - dir * (8 + hash2(seed + 75, i) * 8), wy + 6 + hash2(seed + 77, i) * 6);
     tctx.stroke();
+  }
+
+  // 생태계 장식: 말미잘 + 불가사리 + 미니 산호 군락 (구역별 색감)
+  const palette = DECOR_PALETTE[zoneId];
+  const decorCount = Math.max(4, Math.round(height / 150));
+  for (let i = 0; i < decorCount; i++) {
+    const dy = 40 + hash2(seed + 141, i) * (height - 80);
+    const dx = innerX - dir * (2 + hash2(seed + 143, i) * 5);
+    const kind = hash2(seed + 145, i);
+    const dscale = 0.75 + hash2(seed + 147, i) * 0.4;
+    if (kind < 0.38) {
+      const an = palette.anemones[i % palette.anemones.length];
+      drawAnemone(tctx, dx, dy, dir, seed + i * 3, an, dscale);
+      if (palette.glow) glow(tctx, dx, dy, 9, palette.glow, 0.22);
+    } else if (kind < 0.7) {
+      drawStarfish(tctx, dx, dy, seed + i * 5, palette.starfish[i % palette.starfish.length], dscale);
+    } else {
+      drawMiniCoral(tctx, dx, dy, dir, seed + i * 7, palette.coral, dscale);
+    }
   }
 
   return cnv;
@@ -310,6 +458,21 @@ function bakeCoral(chunk) {
   }
   tctx.globalAlpha = 1;
 
+  // 생태계 장식: 말미잘 + 불가사리 (산호는 이미 위에서 충분히 다뤘으므로 제외)
+  const palette = DECOR_PALETTE.shallow;
+  const decorCount = Math.max(3, Math.round(height / 160));
+  for (let i = 0; i < decorCount; i++) {
+    const dy = 36 + hash2(seed + 161, i) * (height - 72);
+    const dx = innerX - dir * (3 + hash2(seed + 163, i) * 6);
+    const dscale = 0.85 + hash2(seed + 167, i) * 0.4;
+    if (hash2(seed + 165, i) < 0.5) {
+      const an = palette.anemones[i % palette.anemones.length];
+      drawAnemone(tctx, dx, dy, dir, seed + i * 3, an, dscale);
+    } else {
+      drawStarfish(tctx, dx, dy, seed + i * 5, palette.starfish[i % palette.starfish.length], dscale);
+    }
+  }
+
   return cnv;
 }
 
@@ -333,8 +496,8 @@ function bakeVentBody(chunk) {
   tctx.fillStyle = isFg ? grad : style.bg;
   if (isFg) { tctx.strokeStyle = INK; tctx.lineWidth = STROKE.silhouette; }
 
-  const sampleStep = isFg ? 22 : 48;
-  const jitter = isFg ? 3 : 1.2;
+  const sampleStep = isFg ? 17 : 48;
+  const jitter = isFg ? 7.2 : 1.2;
   buildWallPath(tctx, local, 20, 0.012, sampleStep, jitter);
   tctx.fill();
   if (isFg) tctx.stroke();
@@ -371,6 +534,21 @@ function bakeVentBody(chunk) {
       tctx.lineTo(cx, cy);
     }
     tctx.stroke();
+  }
+
+  // 생태계 장식: 창백하거나 은은하게 발광하는 말미잘/불가사리 (열수구 특유의 색소 없는 생물상)
+  const palette = DECOR_PALETTE.vent;
+  const decorCount = Math.max(2, Math.round(height / 210));
+  for (let i = 0; i < decorCount; i++) {
+    const dy = 50 + hash2(seed + 181, i) * (height - 100);
+    const dx = innerX - dir * (2 + hash2(seed + 183, i) * 6);
+    const dscale = 0.75 + hash2(seed + 187, i) * 0.3;
+    if (hash2(seed + 185, i) < 0.55) {
+      drawAnemone(tctx, dx, dy, dir, seed + i * 3, palette.anemones[0], dscale);
+      glow(tctx, dx, dy, 8, palette.glow, 0.28);
+    } else {
+      drawStarfish(tctx, dx, dy, seed + i * 5, palette.starfish[i % palette.starfish.length], dscale);
+    }
   }
 
   return cnv;

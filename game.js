@@ -73,7 +73,7 @@ function makeInitialState() {
     potionSpawnTimer: randRange(8, 15),
     // 지형이 이제 화면의 1.5~3배로 길게 이어지므로, 다음 조각 스폰까지의 간격도
     // 그에 맞춰 크게 잡아 같은 벽이 계속 겹쳐 나오지 않고 자연스러운 리듬을 만든다.
-    terrainFgGap: randRange(CANVAS_H * 0.9, CANVAS_H * 1.6),
+    terrainFgGap: randRange(CANVAS_H * 1.8, CANVAS_H * 3.2), // 첫 벽 스폰 후 spawnTerrainFg에서 실제 벽 길이 기준으로 재계산됨
     terrainFgSide: Math.random() < 0.5 ? 'left' : 'right',
     // 시작하자마자 한참 빈 화면만 보이지 않도록 진행도를 살짝 앞당겨서 시작
     terrainFgProgress: randRange(CANVAS_H * 0.3, CANVAS_H * 0.7),
@@ -147,7 +147,11 @@ function spawnTerrainFg(depthM) {
   const chunk = createTerrainChunk(zoneId, state.terrainFgSide, CANVAS_H);
   state.terrainFg.push(chunk);
   state.terrainFgSide = state.terrainFgSide === 'left' ? 'right' : 'left';
-  state.terrainFgGap = randRange(CANVAS_H * 0.9, CANVAS_H * 1.6);
+  // 다음 벽(반대쪽)은 이번 벽의 "길이"만큼 스크롤이 지나간 뒤에야 스폰한다.
+  // 벽 높이가 화면의 1.5~3배로 길기 때문에, 예전처럼 화면 높이 기준 고정 간격을
+  // 쓰면 이전 벽이 채 사라지기도 전에 반대쪽 벽이 겹쳐 나타나 "양쪽이 동시에
+  // 좁게" 보이는 문제가 있었다 — 한 번에 한쪽 벽만 보이도록 간격을 벽 길이에 맞춘다.
+  state.terrainFgGap = chunk.height + randRange(70, 200);
 }
 
 function spawnTerrainBg(depthM) {
