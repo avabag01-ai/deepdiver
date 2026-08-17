@@ -97,6 +97,30 @@ export function eye(ctx, x, y, r, opts = {}) {
   ctx.restore();
 }
 
+// 물방울 하나 — 살짝 일그러진 타원 + 위쪽 가장자리 밝은 림 하이라이트로 진짜
+// 물방울처럼 보이게 한다(플랫한 원 하나짜리보다 훨씬 사실적). 다이버 기포 트레일,
+// 환경 기포, 생물 기포 등 여러 곳에서 공용으로 재사용한다.
+export function drawBubble(ctx, x, y, r, alpha = 0.5) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(206,233,255,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(x, y, r, r * 1.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = Math.max(0.5, r * 0.22);
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.82, 0, Math.PI * 2);
+  ctx.stroke();
+  // 위쪽 가장자리 밝은 림 하이라이트
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = Math.max(0.5, r * 0.3);
+  ctx.beginPath();
+  ctx.arc(x - r * 0.28, y - r * 0.42, r * 0.34, 0.1, Math.PI * 1.15);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // 발광 글로우: 광원(헤드램프, 유인돌기 등)의 방사형 halo
 export function glow(ctx, x, y, radius, color, alpha = 0.55) {
   ctx.save();

@@ -3,7 +3,7 @@
 // 일정 범위 안에서 상하로도 자유롭게 움직일 수 있다(좁은 통로에서 생물을 상하로 피하기 위함).
 // 배경/지형/생물이 위로 스크롤되는 방식(무한 스크롤 표준 구현)이다.
 
-import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, eye, glow, clamp, rgba } from './utils.js';
+import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, eye, glow, clamp, rgba, drawBubble } from './utils.js';
 
 function outline(ctx, w) {
   ctx.strokeStyle = INK;
@@ -402,7 +402,8 @@ export function drawPlayer(ctx, player) {
   ctx.fill();
   hilite(ctx, () => { ctx.beginPath(); ctx.arc(8.5, -22.5, 0.85, 0, Math.PI * 2); }, 0.8);
 
-  // ---- 숨 기포 트레일 (마스크 옆에서 풍성하게 피어오름, 목업 참조로 개수/지속시간 확대) ----
+  // ---- 숨 기포 트레일 (마스크 옆에서 풍성하게 피어오름) ----
+  // 진짜 물방울처럼: 크기가 커지면서 좌우로 지그재그 흔들리다 옅어지며 사라진다.
   const bubblePhase = player.swimPhase * 0.9;
   const BUBBLE_COUNT = 7;
   const BUBBLE_CYCLE = 2.1;
@@ -411,14 +412,10 @@ export function drawPlayer(ctx, player) {
     if (bt > 1.6) continue;
     const prog = bt / 1.6;
     const by = -15 - prog * 34;
-    const bx = 4 + Math.sin(bt * 6.5 + i * 1.7) * (2.6 + i * 0.3);
-    const br = (0.7 + (i % 3) * 0.4) * (1 - prog * 0.35);
-    ctx.save();
-    ctx.globalAlpha = 0.5 * (1 - prog);
-    ctx.strokeStyle = 'rgba(220,245,255,0.9)';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.stroke();
-    ctx.restore();
+    const zigzag = Math.sin(bt * 5.2 + i * 1.9) * (3 + prog * 3.5);
+    const bx = 4 + zigzag;
+    const br = (0.8 + (i % 3) * 0.45) * (0.6 + prog * 0.7); // 올라가며 서서히 커짐
+    drawBubble(ctx, bx, by, br, 0.55 * (1 - prog));
   }
 
   ctx.restore();

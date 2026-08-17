@@ -7,7 +7,7 @@ import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostPr
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
 import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
-import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst } from './item.js';
+import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst, createBubbleColumn, updateBubbles, drawBubbles } from './item.js';
 import {
   createGlobeState, drawGlobe, attachGlobeDrag, updateGlobeIdleSpin, drawSpaceBackground,
   DIVE_SITES, projectSites, drawPins, hitTestPins,
@@ -35,6 +35,10 @@ const CROSSING_SPECIES = new Set([
   'lanternfish', 'hatchetfish', 'deepoctopus', 'dumbooctopus',
 ]);
 const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률
+
+// 지나갈 때 가끔 기포를 흘리는 대형 생물 (범고래/상어/거북 등 덩치 큰 종)
+const BIG_BUBBLE_SPECIES = new Set(['orca', 'reefshark', 'seaturtle', 'deepoctopus', 'giantisopod']);
+const MAX_BUBBLES = 30;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -183,6 +187,8 @@ function makeInitialState() {
     distantCreatures: [],
     distantCreatureTimer: randRange(6, 12),
     bursts: [],
+    bubbles: [],
+    ambientBubbleTimer: randRange(1.2, 2.4),
     creatureSpawnTimer: randRange(0.65, 1.4),
     itemSpawnTimer: randRange(2.2, 3.6),
     potionSpawnTimer: randRange(8, 15),
@@ -322,6 +328,32 @@ function spawnDistantCreature(depthM) {
   });
 }
 
+// 환경 기포 — 암벽 틈(근경 지형이 있으면 그 안쪽 가장자리 근처)이나 바다 바닥에서
+// 뽀글뽀글 올라오는 기포 기둥. 열수구 구역은 더 크고 활발하게(열수 분출 느낌).
+function spawnAmbientBubbles(depthM) {
+  if (state.bubbles.length >= MAX_BUBBLES) return;
+  const zoneId = zoneAt(depthM).id;
+  const vent = zoneId === 'vent';
+
+  let x = randRange(24, CANVAS_W - 24);
+  // 화면에 근경 벽이 있으면 그 안쪽 가장자리 근처에서 새어나오는 것처럼 보이게
+  const fgOnScreen = state.terrainFg.filter(ch => ch.y < CANVAS_H && ch.y + ch.height > 0);
+  if (fgOnScreen.length && Math.random() < 0.7) {
+    const ch = fgOnScreen[Math.floor(Math.random() * fgOnScreen.length)];
+    x = ch.side === 'left' ? ch.x + ch.width * (0.5 + Math.random() * 0.3) : ch.x + ch.width * (0.2 + Math.random() * 0.3);
+  }
+  const baseY = (state.floorReached && state.floorY != null && state.floorY < CANVAS_H)
+    ? state.floorY + 20 + Math.random() * 30
+    : CANVAS_H + 10;
+
+  const count = vent ? 5 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 3);
+  const sizeScale = vent ? 1.7 : 1;
+  const speedScale = vent ? 1.5 : 1;
+  const room = MAX_BUBBLES - state.bubbles.length;
+  const col = createBubbleColumn(x, baseY, count, sizeScale, speedScale).slice(0, room);
+  state.bubbles.push(...col);
+}
+
 function endGame() {
   state.over = true;
   state.running = false;
@@ -456,6 +488,11 @@ function update(dtSecRaw) {
     spawnDistantCreature(depthM);
     state.distantCreatureTimer = randRange(9, 18);
   }
+  state.ambientBubbleTimer -= dtSec;
+  if (state.ambientBubbleTimer <= 0) {
+    spawnAmbientBubbles(depthM);
+    state.ambientBubbleTimer = randRange(1.4, 2.8);
+  }
 
   // ---- 생물 갱신 + 충돌 ----
   // 다이버가 하강할수록 생물은 화면 아래에서 나타나 위로 흘러가 사라진다 (지형과 동일 방향).
@@ -476,6 +513,11 @@ function update(dtSecRaw) {
     if (!state.over && dx * dx + dy * dy < (r + pr) * (r + pr)) {
       state.dex.add(sp.id);
       damagePlayer();
+    }
+
+    // 큰 생물이 지나갈 때 가끔 기포를 흘린다 (아주 낮은 확률로, 매 프레임 체크)
+    if (BIG_BUBBLE_SPECIES.has(sp.id) && state.bubbles.length < MAX_BUBBLES && Math.random() < 0.02) {
+      state.bubbles.push(...createBubbleColumn(c.curX, c.curY, 1 + Math.floor(Math.random() * 2), 0.8, 0.9));
     }
 
     const crossedOff = c.crossDir && (c.curX < -80 || c.curX > CANVAS_W + 80);
@@ -548,11 +590,12 @@ function update(dtSecRaw) {
     if (state.scrollDir > 0 ? c.y < -150 : c.y > CANVAS_H + 150) state.distantCreatures.splice(i, 1);
   }
 
-  // ---- 파티클 버스트 ----
+  // ---- 파티클 버스트 + 기포 ----
   for (let i = state.bursts.length - 1; i >= 0; i--) {
     updateBurst(state.bursts[i], dtSec);
     if (state.bursts[i].done) state.bursts.splice(i, 1);
   }
+  updateBubbles(state.bubbles, dtSec);
 
   updateHud(depthM);
 }
@@ -665,6 +708,7 @@ function render() {
   }
 
   for (const b of state.bursts) drawBurst(ctx, b);
+  drawBubbles(ctx, state.bubbles);
 
   ctx.restore();
 

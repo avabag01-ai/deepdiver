@@ -1,6 +1,6 @@
 // item.js — 수집 아이템 3종 + 획득 파티클 버스트
 
-import { INK, STROKE, shade, hilite, glow, rgba } from './utils.js';
+import { INK, STROKE, shade, hilite, glow, rgba, drawBubble } from './utils.js';
 
 export const ITEM_TYPES = {
   pearl: { id: 'pearl', kind: 'collectible', points: 1, radius: 8, name: '진주조개' },
@@ -250,5 +250,43 @@ export function drawBurst(ctx, burst) {
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+}
+
+// ---- 환경/생물 기포 파티클 (기존 burst 파티클 시스템과 같은 update/draw 패턴 재사용) ----
+// 화면 전체 동시 기포 개수는 game.js에서 30개로 제한한다.
+export function createBubbleColumn(x, baseY, count, sizeScale = 1, speedScale = 1) {
+  const bubbles = [];
+  for (let i = 0; i < count; i++) {
+    bubbles.push({
+      x: x + (Math.random() - 0.5) * 6,
+      y: baseY - i * (8 + Math.random() * 7),
+      r: (1.3 + Math.random() * 2.1) * sizeScale,
+      vy: (24 + Math.random() * 20) * speedScale,
+      wobPhase: Math.random() * Math.PI * 2,
+      wobSpeed: 2.6 + Math.random() * 2.2,
+      wobAmp: (2 + Math.random() * 4) * sizeScale,
+      life: 0,
+      maxLife: 1.6 + Math.random() * 1.6,
+    });
+  }
+  return bubbles;
+}
+
+export function updateBubbles(bubbles, dtSec) {
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i];
+    b.life += dtSec;
+    b.y -= b.vy * dtSec; // 기포는 스크롤 방향과 무관하게 항상 수면 쪽(위)으로 떠오름
+    if (b.life >= b.maxLife) bubbles.splice(i, 1);
+  }
+}
+
+export function drawBubbles(ctx, bubbles) {
+  for (const b of bubbles) {
+    const growT = Math.min(1, b.life / 0.3);
+    const fadeT = Math.max(0, 1 - b.life / b.maxLife);
+    const x = b.x + Math.sin(b.life * b.wobSpeed + b.wobPhase) * b.wobAmp;
+    drawBubble(ctx, x, b.y, b.r * (0.55 + 0.45 * growT), 0.5 * fadeT);
   }
 }
