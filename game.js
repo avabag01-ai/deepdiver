@@ -8,6 +8,11 @@ import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './sp
 import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
 import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst } from './item.js';
+import {
+  createGlobeState, drawGlobe, attachGlobeDrag, updateGlobeIdleSpin, drawSpaceBackground,
+  DIVE_SITES, projectSites, drawPins, hitTestPins,
+  loadClearedSet, saveClearedSet, isSiteUnlocked,
+} from './globe.js';
 
 const PX_PER_METER = 20;
 const MAX_ENTITIES_ON_SCREEN = 7;
@@ -26,15 +31,112 @@ const DISTANT_SILHOUETTE_BY_ZONE = { shallow: 'reefshark', twilight: 'reefshark'
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
+const hudEl = document.getElementById('hud');
+const touchControlsEl = document.getElementById('touchControls');
 const hudDepth = document.getElementById('depthReadout');
 const hudScore = document.getElementById('scoreReadout');
 const hudDex = document.getElementById('dexReadout');
 const hudHealth = document.getElementById('healthReadout');
 const overlay = document.getElementById('overlay');
-const startHint = document.getElementById('startHint');
+const overlayTitleEl = document.getElementById('overlayTitle');
 const finalDepthEl = document.getElementById('finalDepth');
 const finalScoreEl = document.getElementById('finalScore');
 const finalDexEl = document.getElementById('finalDex');
+const btnRestart = document.getElementById('btnRestart');
+const btnGlobeFromOver = document.getElementById('btnGlobeFromOver');
+
+// ---- 지구본(레벨 선택) 화면 ----
+const globeScreen = document.getElementById('globeScreen');
+const globeCanvas = document.getElementById('globeCanvas');
+const globeCtx = globeCanvas.getContext('2d');
+const siteCard = document.getElementById('siteCard');
+const siteNameEl = document.getElementById('siteName');
+const sitePlaceEl = document.getElementById('sitePlace');
+const siteDepthEl = document.getElementById('siteDepth');
+const siteStatusEl = document.getElementById('siteStatus');
+const btnDiveStart = document.getElementById('btnDiveStart');
+
+const GLOBE_CX = globeCanvas.width / 2;
+const GLOBE_CY = globeCanvas.height * 0.46;
+const GLOBE_R = Math.min(globeCanvas.width, globeCanvas.height) * 0.37;
+
+const globeState = createGlobeState();
+let clearedSet = loadClearedSet();
+let selectedPin = null;   // 카드에 표시 중인 핀 (projectSites 결과 원소)
+let currentSite = null;   // 지금 다이빙 중인 스팟 (devAutoStart로 진입하면 null)
+let screen = 'globe';     // 'globe' | 'diving'
+let lastProjectedPins = [];
+
+attachGlobeDrag(globeCanvas, globeState);
+
+function updateSiteCardUI() {
+  if (!selectedPin) { siteCard.classList.remove('show'); return; }
+  const { site, index } = selectedPin;
+  const unlocked = isSiteUnlocked(index, clearedSet, DIVE_SITES);
+  const cleared = clearedSet.has(site.id);
+  siteNameEl.textContent = `${index + 1}. ${site.name}`;
+  sitePlaceEl.textContent = site.place;
+  siteDepthEl.textContent = `목표 수심 ${site.targetDepth.toLocaleString()} m`;
+  if (!unlocked) {
+    siteStatusEl.textContent = '🔒 이전 스팟을 클리어하면 열립니다';
+    siteStatusEl.className = 'siteStatus locked';
+    btnDiveStart.style.display = 'none';
+  } else {
+    siteStatusEl.textContent = cleared ? '✓ 클리어 완료 — 다시 도전할 수 있어요' : '도전 가능';
+    siteStatusEl.className = 'siteStatus' + (cleared ? ' cleared' : '');
+    btnDiveStart.style.display = 'inline-block';
+  }
+  siteCard.classList.add('show');
+}
+
+// 드래그(회전)와 탭(핀 선택)을 구분: 포인터다운~업 사이 이동거리가 작을 때만 탭으로 인정
+let pinDownX = 0, pinDownY = 0, pinMoved = false;
+function globeLocalXY(e) {
+  const rect = globeCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (globeCanvas.width / rect.width),
+    y: (e.clientY - rect.top) * (globeCanvas.height / rect.height),
+  };
+}
+globeCanvas.addEventListener('pointerdown', (e) => {
+  const p = globeLocalXY(e);
+  pinDownX = p.x; pinDownY = p.y; pinMoved = false;
+});
+globeCanvas.addEventListener('pointermove', (e) => {
+  const p = globeLocalXY(e);
+  if (Math.hypot(p.x - pinDownX, p.y - pinDownY) > 6) pinMoved = true;
+});
+globeCanvas.addEventListener('pointerup', (e) => {
+  if (pinMoved) return; // 드래그였으면 탭으로 취급하지 않음
+  const p = globeLocalXY(e);
+  const hit = hitTestPins(lastProjectedPins, p.x, p.y);
+  selectedPin = hit || null;
+  updateSiteCardUI();
+});
+
+function renderGlobeScreen() {
+  globeCtx.clearRect(0, 0, globeCanvas.width, globeCanvas.height);
+  drawSpaceBackground(globeCtx, globeCanvas.width, globeCanvas.height, state.timeSec);
+  drawGlobe(globeCtx, GLOBE_CX, GLOBE_CY, GLOBE_R, globeState);
+  lastProjectedPins = projectSites(GLOBE_CX, GLOBE_CY, GLOBE_R, globeState, DIVE_SITES);
+  drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES);
+}
+
+function showGlobeScreen() {
+  screen = 'globe';
+  globeScreen.classList.remove('hide');
+  hudEl.style.display = 'none';
+  touchControlsEl.style.display = 'none';
+  overlay.classList.remove('show');
+}
+
+function showDivingScreen() {
+  screen = 'diving';
+  globeScreen.classList.add('hide');
+  hudEl.style.display = 'flex';
+  touchControlsEl.style.display = 'flex';
+  siteCard.classList.remove('show');
+}
 
 function scrollSpeedForDepth(depthM) {
   // 초반 60px/s, 깊어질수록 완만히 증가해 최대 160px/s
@@ -53,6 +155,8 @@ function makeInitialState() {
   return {
     running: false,
     over: false,
+    cleared: false,
+    targetDepthM: null, // 선택한 다이빙 스팟의 목표 수심(도달하면 클리어) — 지구본 없이 진입 시 null
     totalScrollPx: startDepthM * PX_PER_METER,
     score: 0,
     dex: new Set(),
@@ -189,6 +293,24 @@ function spawnDistantCreature(depthM) {
 function endGame() {
   state.over = true;
   state.running = false;
+  overlayTitleEl.textContent = '조난';
+  btnRestart.textContent = '다시 하강';
+  finalDepthEl.textContent = `도달 깊이 ${Math.floor(currentDepthM())} m`;
+  finalScoreEl.textContent = `수집 점수 ${state.score}`;
+  finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
+  overlay.classList.add('show');
+}
+
+// 목표 수심에 도달하면 레벨 클리어 — 진행상황을 localStorage에 저장하고 다음 스팟을 잠금해제한다.
+function clearLevel() {
+  state.cleared = true;
+  state.running = false;
+  if (currentSite) {
+    clearedSet.add(currentSite.id);
+    saveClearedSet(clearedSet);
+  }
+  overlayTitleEl.textContent = '레벨 클리어! 🎉';
+  btnRestart.textContent = '다시 도전';
   finalDepthEl.textContent = `도달 깊이 ${Math.floor(currentDepthM())} m`;
   finalScoreEl.textContent = `수집 점수 ${state.score}`;
   finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
@@ -198,7 +320,7 @@ function endGame() {
 // 즉사 대신 데미지 누적 방식. 피격 후 일정 시간 무적이라 같은 장애물에 연속으로
 // 부딪혀 순식간에 체력이 다 깎이는 억울한 상황을 방지한다.
 function damagePlayer() {
-  if (state.over) return;
+  if (state.over || state.cleared) return;
   if (state.timeSec < state.invulnUntil) return; // 무적 시간 중이면 무시
   state.health -= 1;
   state.invulnUntil = state.timeSec + INVULN_DURATION;
@@ -227,6 +349,14 @@ function update(dtSecRaw) {
   const scrollSpeed = scrollSpeedForDepth(depthM);
   const scrollPx = scrollSpeed * dtSec;
   state.totalScrollPx += scrollPx;
+
+  // 목표 수심(선택한 다이빙 스팟)에 도달하면 즉시 클리어 처리하고 이번 프레임의
+  // 나머지 스폰/충돌 로직은 건너뛴다 (막 클리어한 순간에 피격당하는 억울함 방지).
+  if (state.targetDepthM != null && !state.over && !state.cleared && currentDepthM() >= state.targetDepthM) {
+    clearLevel();
+    updateHud(currentDepthM());
+    return;
+  }
 
   updatePlayer(player, dtSec, state.timeSec);
 
@@ -451,35 +581,54 @@ function loop(ts) {
   lastTs = ts;
   const dtSec = dtMs / 1000; // 밀리초 → 초 정규화 (필수)
 
-  if (state.running && !state.over) {
-    update(dtSec);
+  if (screen === 'globe') {
+    updateGlobeIdleSpin(globeState, dtSec);
+    state.timeSec += dtSec; // 별 트윙클/행성 시차용 시계는 계속 흐르게 함
+    renderGlobeScreen();
   } else {
-    // 정지 상태에서도 파티클/배경 애니메이션은 자연스럽게 유지하지 않고 정지된 프레임 유지
+    if (state.running && !state.over && !state.cleared) {
+      update(dtSec);
+    } else {
+      // 정지 상태에서도 파티클/배경 애니메이션은 자연스럽게 유지하지 않고 정지된 프레임 유지
+    }
+    render();
   }
-  render();
   requestAnimationFrame(loop);
 }
 
-function resetAndStart() {
+// site: DIVE_SITES 원소 또는 null(지구본 없이 진입하는 개발용 ?depth= 모드)
+function startDive(site) {
+  currentSite = site;
   state = makeInitialState();
   state.running = true;
+  state.targetDepthM = site ? site.targetDepth : null;
   player.x = CANVAS_W / 2;
   player.y = PLAYER_ANCHOR_Y;
   player.vx = 0;
   player.vy = 0;
   overlay.classList.remove('show');
-  startHint.classList.add('hide');
   lastTs = null;
+  showDivingScreen();
 }
 
-document.getElementById('btnStart').addEventListener('click', resetAndStart);
-document.getElementById('btnRestart').addEventListener('click', resetAndStart);
+btnDiveStart.addEventListener('click', () => {
+  if (!selectedPin) return;
+  if (!isSiteUnlocked(selectedPin.index, clearedSet, DIVE_SITES)) return;
+  startDive(selectedPin.site);
+});
+
+btnRestart.addEventListener('click', () => startDive(currentSite));
+btnGlobeFromOver.addEventListener('click', () => {
+  selectedPin = null;
+  updateSiteCardUI();
+  showGlobeScreen();
+});
 
 if (state.devAutoStart) {
-  // 개발용 ?depth= 파라미터가 있으면 바로 시작 (구역 검증 편의)
-  resetAndStart();
+  // 개발용 ?depth= 파라미터가 있으면 지구본을 건너뛰고 바로 시작 (구역 검증 편의)
+  startDive(null);
 } else {
-  render();
+  showGlobeScreen();
 }
 
 requestAnimationFrame(loop);

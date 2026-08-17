@@ -14,14 +14,23 @@ export function createItem(type, x, y) {
   return { type, x, y, radius: ITEM_TYPES[type].radius, spawnT: 0, collected: false };
 }
 
+// 은은하게 밝기가 오르내리는 펄스 계수 (0~1, 아이템마다 위상을 다르게 줘서 화면에
+// 여러 개가 함께 있어도 전부 같은 박자로 깜빡이지 않게 한다)
+function glowPulse(t, speed, phase = 0) {
+  return 0.72 + Math.sin(t * speed + phase) * 0.28;
+}
+
 function drawPearl(ctx, x, y, t) {
   ctx.save();
   ctx.translate(x, y);
   const bob = Math.sin(t * 2) * 2;
   ctx.translate(0, bob);
-  // 조개껍질
+  const pulse = glowPulse(t, 2.6, 0);
+  // 은은한 외곽 글로우 — 어두운 배경/지형 사이에서도 눈에 띄도록
+  glow(ctx, 0, 0, 17 * pulse, '#ffd9ee', 0.4 * pulse);
+  // 조개껍질 (채도를 올려 배경과 대비를 확실히)
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = '#d68fae';
+  ctx.fillStyle = '#ef5f9a';
   ctx.beginPath();
   ctx.moveTo(-9, 2);
   ctx.quadraticCurveTo(-6, -7, 0, -8);
@@ -30,7 +39,7 @@ function drawPearl(ctx, x, y, t) {
   ctx.closePath();
   ctx.fill(); ctx.stroke();
   shade(ctx, () => { ctx.beginPath(); ctx.moveTo(-9, 2); ctx.quadraticCurveTo(0, 5, 9, 2); ctx.quadraticCurveTo(0, 6, -9, 2); }, 0.24);
-  glow(ctx, 0, -1, 10, '#fff6e0', 0.5);
+  glow(ctx, 0, -1, 10 * pulse, '#fff6e0', 0.6 * pulse);
   ctx.fillStyle = '#fff6e0';
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail;
   ctx.beginPath(); ctx.arc(0, -1, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -43,18 +52,21 @@ function drawOxygen(ctx, x, y, t) {
   ctx.translate(x, y);
   const bob = Math.sin(t * 2.4 + 1) * 2;
   ctx.translate(0, bob);
+  const pulse = glowPulse(t, 3.1, 1.4);
+  // 산소캡슐은 전신이 밝은 회백색이라 특히 묻히기 쉬우므로 시안색 글로우로 존재감을 준다
+  glow(ctx, 0, 0, 16 * pulse, '#7fe0ff', 0.42 * pulse);
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
-  ctx.fillStyle = '#e8e8ec';
+  ctx.fillStyle = '#f4fbff';
   ctx.beginPath();
   ctx.roundRect(-6, -10, 12, 20, 4);
   ctx.fill(); ctx.stroke();
   shade(ctx, () => { ctx.beginPath(); ctx.roundRect(-1, -10, 7, 20, 3); }, 0.2);
-  ctx.fillStyle = '#3fbf6a';
+  ctx.fillStyle = '#2fe084';
   ctx.beginPath(); ctx.roundRect(-6, -10, 12, 6, [4, 4, 0, 0]); ctx.fill();
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail;
   ctx.beginPath(); ctx.moveTo(-6, -4); ctx.lineTo(6, -4); ctx.stroke();
   // + 마크
-  ctx.strokeStyle = '#2f8f52'; ctx.lineWidth = 1.6;
+  ctx.strokeStyle = '#1f8f52'; ctx.lineWidth = 1.6;
   ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(0, 6); ctx.moveTo(-3.5, 2.5); ctx.lineTo(3.5, 2.5); ctx.stroke();
   ctx.restore();
 }
@@ -64,21 +76,23 @@ function drawChest(ctx, x, y, t) {
   ctx.translate(x, y);
   const bob = Math.sin(t * 1.8 + 2) * 2;
   ctx.translate(0, bob);
+  const pulse = glowPulse(t, 2.2, 2.7);
+  glow(ctx, 0, 2, 19 * pulse, '#ffe27a', 0.5 * pulse);
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
-  ctx.fillStyle = '#a5652f';
+  ctx.fillStyle = '#c67a35';
   ctx.beginPath();
   ctx.roundRect(-11, -3, 22, 12, 2);
   ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#8a5024';
+  ctx.fillStyle = '#9c5c28';
   ctx.beginPath();
   ctx.moveTo(-11, -3); ctx.quadraticCurveTo(0, -14, 11, -3); ctx.closePath();
   ctx.fill(); ctx.stroke();
   shade(ctx, () => { ctx.beginPath(); ctx.roundRect(-11, 2, 22, 7, 2); }, 0.24);
-  ctx.strokeStyle = '#e8c94a'; ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffd94a'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(-11, -3); ctx.lineTo(11, -3); ctx.stroke();
-  ctx.fillStyle = '#e8c94a';
+  ctx.fillStyle = '#ffd94a';
   ctx.beginPath(); ctx.arc(0, -2, 2.4, 0, Math.PI * 2); ctx.fill();
-  glow(ctx, 0, 2, 12, '#ffe27a', 0.3);
+  glow(ctx, 0, 2, 12 * pulse, '#ffe27a', 0.4 * pulse);
   ctx.restore();
 }
 
@@ -87,7 +101,8 @@ function drawPotion(ctx, x, y, t) {
   ctx.translate(x, y);
   const bob = Math.sin(t * 2.2 + 3) * 2;
   ctx.translate(0, bob);
-  glow(ctx, 0, 0, 14, '#7dffb0', 0.55);
+  const pulse = glowPulse(t, 2.9, 4.1);
+  glow(ctx, 0, 0, 19 * pulse, '#7dffb0', 0.62 * pulse);
   // 캡슐 몸체 (발광 해초를 담은 유리 캡슐)
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
   ctx.fillStyle = 'rgba(200, 245, 220, 0.5)';
