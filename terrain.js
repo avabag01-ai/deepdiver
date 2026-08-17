@@ -97,14 +97,50 @@ export function createDistantChunk(zoneId, side, spawnY) {
 // 추가로 "chunky" 항은 굵은 단위로 양자화한 해시값을 쓰기 때문에, 그 구간 안의
 // 모든 샘플 포인트가 같은 큰 오프셋을 공유하다가 다음 구간에서 갑자기 값이
 // 바뀌는 계단식 턱을 만든다 — 로우폴리 암석처럼 각진 돌출/함몰을 표현한다.
+// 격자점에 해시값을 두고 부드러운 보간(smoothstep)으로 잇는 1D 값 노이즈.
+// 사인파와 달리 봉우리/골짜기 간격이 불규칙해서 "자연 지형" 느낌이 난다.
+function valueNoise1D(x, seed, gridSize) {
+  const gx = x / gridSize;
+  const i0 = Math.floor(gx);
+  const i1 = i0 + 1;
+  const f = gx - i0;
+  const t = f * f * (3 - 2 * f); // smoothstep
+  const v0 = hash2(i0, seed) * 2 - 1;
+  const v1 = hash2(i1, seed) * 2 - 1;
+  return v0 + (v1 - v0) * t;
+}
+
+// 큰 능선(저주파)+중간 굴곡+미세 디테일, 3개 옥타브를 겹친 프랙탈 노이즈.
+// 실제 산맥/절벽 실루엣처럼 뾰족한 봉우리와 완만한 구간이 불규칙하게 섞인다.
+function ridgeNoise(localY, seed) {
+  const big = valueNoise1D(localY, seed, 150);
+  const mid = valueNoise1D(localY, seed + 47.3, 54);
+  const fine = valueNoise1D(localY, seed + 133.1, 17);
+  return big * 1.0 + mid * 0.5 + fine * 0.26; // 대략 [-1.76, 1.76]
+}
+
+// 낮은 확률로 절벽처럼 급격히 튀어나온 뾰족한 봉우리를 섞는다(전체가 균일한 리듬으로
+// 울퉁불퉁하면 오히려 인공적으로 보이므로, 가끔은 확 튀는 지점을 만든다).
+function spikeBoost(localY, seed, roughness) {
+  const cellSize = 150;
+  const cell = Math.floor(localY / cellSize);
+  if (hash2(cell, seed + 777.7) > 0.8) return 0; // ~80%는 봉우리 없음
+  const peakPos = cell * cellSize + hash2(cell, seed + 778.2) * cellSize;
+  const dist = Math.abs(localY - peakPos);
+  const width = 20 + hash2(cell, seed + 779.5) * 22;
+  if (dist > width) return 0;
+  const shape = 1 - dist / width; // 삼각형 형태로 뾰족하게 솟았다가 내려감
+  const height = 1.1 + hash2(cell, seed + 780.9) * 0.9;
+  return shape * shape * height * Math.min(1.4, roughness / 4);
+}
+
 function innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp) {
-  const n = Math.sin(localY * freq + seed) * 0.6 + Math.sin(localY * freq * 2.3 + seed * 1.7) * 0.4;
-  const fineJitter = jitterAmp ? (hash2(Math.round(localY * 0.4), seed) - 0.5) * 2 * jitterAmp : 0;
-  const chunkyStep = 44;
-  const chunkyJitter = jitterAmp
-    ? (hash2(Math.floor(localY / chunkyStep), seed + 91.3) - 0.5) * 2 * (jitterAmp * 1.7)
-    : 0;
-  return innerX + dir * (amp * 0.5 + amp * 0.5 * n + fineJitter + chunkyJitter);
+  const roughness = jitterAmp || 1;
+  const ridge = ridgeNoise(localY, seed);
+  const spike = spikeBoost(localY, seed, roughness);
+  const fineDetail = jitterAmp ? (hash2(Math.round(localY * 0.5), seed + 19.4) - 0.5) * 2 * jitterAmp * 0.35 : 0;
+  const combined = ridge * 0.62 + spike + fineDetail;
+  return innerX + dir * (amp * 0.5 + amp * 0.62 * combined);
 }
 
 // chunk: {x,y,width,height,seed,side} — 로컬 좌표로 구울 때는 x=0,y=0인 사본을 넘긴다.

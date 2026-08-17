@@ -28,11 +28,18 @@ const HEART_EMPTY = '🖤';
 // 헤드램프 암전 구역(deepsea/vent)은 이미 어둠 연출이 있으므로 밝은 구역에서만 배치.
 const DISTANT_SILHOUETTE_BY_ZONE = { shallow: 'reefshark', twilight: 'reefshark' };
 
+// 열린 바다를 유영하며 화면을 가로질러 지나갈 수 있는 종 — 매복형(바이퍼피시/앵글러 등)이나
+// 고정형 장식(말미잘/산호 등은 애초에 creatures가 아니라 terrain에 구워짐)은 제외.
+const CROSSING_SPECIES = new Set([
+  'reefshark', 'orca', 'flyingfish', 'bluetang', 'clownfish', 'seaturtle',
+  'lanternfish', 'hatchetfish', 'deepoctopus', 'dumbooctopus',
+]);
+const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 const hudEl = document.getElementById('hud');
-const touchControlsEl = document.getElementById('touchControls');
 const hudDepth = document.getElementById('depthReadout');
 const hudScore = document.getElementById('scoreReadout');
 const hudDex = document.getElementById('dexReadout');
@@ -126,7 +133,6 @@ function showGlobeScreen() {
   screen = 'globe';
   globeScreen.classList.remove('hide');
   hudEl.style.display = 'none';
-  touchControlsEl.style.display = 'none';
   overlay.classList.remove('show');
 }
 
@@ -134,7 +140,6 @@ function showDivingScreen() {
   screen = 'diving';
   globeScreen.classList.add('hide');
   hudEl.style.display = 'flex';
-  touchControlsEl.style.display = 'flex';
   siteCard.classList.remove('show');
 }
 
@@ -213,13 +218,22 @@ function spawnCreature(depthM) {
   if (!sp) return;
   const r = creatureVisualRadius(sp);
   const margin = r + 6;
-  const x = randRange(margin, CANVAS_W - margin);
+  let x = randRange(margin, CANVAS_W - margin);
+  let crossDir = 0, crossSpeed = 0;
+  // 유영성 어류/생물 일부는 제자리 sway 대신 화면을 대각선으로 가로지르며 지나가게 한다
+  // (고정형/매복형 생물은 CROSSING_SPECIES에 없으므로 항상 기존처럼 제자리 유지)
+  if (CROSSING_SPECIES.has(sp.id) && Math.random() < CROSS_CHANCE) {
+    crossDir = Math.random() < 0.5 ? 1 : -1;
+    crossSpeed = randRange(16, 38);
+    x = crossDir === 1 ? -r : CANVAS_W + r; // 화면 밖에서 시작해 가로질러 등장
+  }
   state.creatures.push({
     speciesId: sp.id,
     baseX: x,
     y: CANVAS_H + r + 10,
     phase: Math.random() * Math.PI * 2,
     spawnT: Math.random() * 10,
+    crossDir, crossSpeed,
   });
   state.speciesLastSpawn[sp.id] = state.timeSec;
   state.lastSpeciesId = sp.id;
@@ -402,6 +416,7 @@ function update(dtSecRaw) {
   for (let i = state.creatures.length - 1; i >= 0; i--) {
     const c = state.creatures[i];
     c.y -= scrollPx;
+    if (c.crossDir) c.baseX += c.crossDir * c.crossSpeed * dtSec; // 대각선으로 화면을 가로지름
     const sp = speciesById(c.speciesId);
     const swayFreq = (Math.PI * 2) / sp.swayPeriod;
     const t = state.timeSec + c.spawnT;
@@ -417,7 +432,8 @@ function update(dtSecRaw) {
       damagePlayer();
     }
 
-    if (c.y + creatureVisualRadius(sp) < -20) {
+    const crossedOff = c.crossDir && (c.curX < -80 || c.curX > CANVAS_W + 80);
+    if (c.y + creatureVisualRadius(sp) < -20 || crossedOff) {
       state.creatures.splice(i, 1);
     }
   }
@@ -526,7 +542,17 @@ function render() {
 
   for (const c of state.creatures) {
     const sp = speciesById(c.speciesId);
-    sp.draw(ctx, c.curX ?? c.baseX, c.curY ?? c.y, state.timeSec + c.spawnT, sp.size);
+    const px = c.curX ?? c.baseX, py = c.curY ?? c.y;
+    if (c.crossDir === -1) {
+      // 기본 스프라이트는 오른쪽을 향하므로, 왼쪽으로 가로지르는 개체는 좌우 반전해서
+      // 실제 이동 방향을 보고 헤엄치는 것처럼 보이게 한다.
+      ctx.save();
+      ctx.translate(px, py); ctx.scale(-1, 1); ctx.translate(-px, -py);
+      sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
+      ctx.restore();
+    } else {
+      sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
+    }
   }
 
   for (const it of state.items) drawItem(ctx, it, state.timeSec);
@@ -546,8 +572,9 @@ function render() {
       if (!spots) continue;
       const wx = c.curX ?? c.baseX;
       const wy = c.curY ?? c.y;
+      const flip = c.crossDir === -1 ? -1 : 1;
       for (const spot of spots) {
-        glow(ctx, wx + spot.dx * sp.size, wy + spot.dy * sp.size, spot.r * sp.size, spot.color, spot.alpha);
+        glow(ctx, wx + spot.dx * flip * sp.size, wy + spot.dy * sp.size, spot.r * sp.size, spot.color, spot.alpha);
       }
     }
   } else {

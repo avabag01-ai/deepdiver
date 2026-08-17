@@ -118,18 +118,6 @@ export function attachPlayerInput(player, canvasEl) {
   canvasEl.addEventListener('pointercancel', endDrag);
   canvasEl.addEventListener('pointerleave', endDrag);
 
-  function bindHoldButton(el, dir) {
-    if (!el) return;
-    const start = (e) => { e.preventDefault(); player.keys[dir] = true; };
-    const end = () => { player.keys[dir] = false; };
-    el.addEventListener('pointerdown', start);
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
-    el.addEventListener('pointerleave', end);
-  }
-  bindHoldButton(document.getElementById('btnLeft'), 'left');
-  bindHoldButton(document.getElementById('btnRight'), 'right');
-
   return () => {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
