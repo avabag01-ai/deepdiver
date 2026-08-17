@@ -131,11 +131,78 @@ function drawPotion(ctx, x, y, t) {
   ctx.restore();
 }
 
-const DRAW_FNS = { pearl: drawPearl, oxygen: drawOxygen, chest: drawChest, potion: drawPotion };
+// 레벨 목표 대형 아이템 — 구역 테마별로 생김새가 다르다(표층/트와일라잇=난파선 보물상자,
+// 심해=고대 유물 오벨리스크, 열수구=발광 광물 결정체). 일반 아이템보다 훨씬 크고
+// 글로우도 두 겹으로 겹쳐 훨씬 화려하게 눈에 띄도록 한다.
+const TREASURE_PALETTE = {
+  shallow: { body: '#c67a35', body2: '#9c5c28', trim: '#ffd94a', glow: '#ffe27a' },
+  twilight: { body: '#7a5230', body2: '#4a3018', trim: '#e0c060', glow: '#ffcf6a' },
+  deepsea: { body: '#5a6a8a', body2: '#3a4560', trim: '#bcd8ff', glow: '#8dc8ff' },
+  vent: { body: '#8a3a8a', body2: '#5a1f5a', trim: '#ffb0ff', glow: '#ff8ae0' },
+};
+
+function drawTreasure(ctx, x, y, t, variant) {
+  const zoneId = variant || 'shallow';
+  const pal = TREASURE_PALETTE[zoneId] || TREASURE_PALETTE.shallow;
+  ctx.save();
+  ctx.translate(x, y);
+  const bob = Math.sin(t * 1.3) * 3;
+  ctx.translate(0, bob);
+  const pulse = 0.78 + Math.sin(t * 2.4) * 0.22;
+  glow(ctx, 0, 0, 46 * pulse, pal.glow, 0.55 * pulse);
+  glow(ctx, 0, 0, 24 * pulse, pal.glow, 0.55 * pulse);
+
+  if (zoneId === 'deepsea') {
+    // 고대 유물: 세로로 긴 석상/오벨리스크 + 발광 룬 문양
+    ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
+    ctx.fillStyle = pal.body;
+    ctx.beginPath();
+    ctx.moveTo(-12, 18); ctx.lineTo(-9, -16); ctx.lineTo(0, -25); ctx.lineTo(9, -16); ctx.lineTo(12, 18);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    shade(ctx, () => { ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(9, -16); ctx.lineTo(12, 18); ctx.lineTo(2, 18); ctx.closePath(); }, 0.26);
+    ctx.strokeStyle = pal.trim; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(0, -3, 6.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4.5, -3); ctx.lineTo(4.5, -3); ctx.moveTo(0, -7.5); ctx.lineTo(0, 1.5); ctx.stroke();
+  } else if (zoneId === 'vent') {
+    // 발광 광물 결정체 군집
+    for (const [dx, h, w] of [[-11, 20, 7], [0, 27, 9], [11, 19, 6.5], [-5, 13, 5], [5, 14, 5]]) {
+      ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part;
+      ctx.fillStyle = pal.body;
+      ctx.beginPath();
+      ctx.moveTo(dx - w, 11); ctx.lineTo(dx, -h); ctx.lineTo(dx + w, 11); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = pal.trim;
+      ctx.beginPath(); ctx.moveTo(dx, -h); ctx.lineTo(dx + w * 0.4, -h * 0.4); ctx.lineTo(dx, 2); ctx.closePath(); ctx.fill();
+    }
+  } else {
+    // 표층/트와일라잇: 크고 화려한 난파선 보물상자, 흘러나온 금화
+    ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
+    ctx.fillStyle = pal.body;
+    ctx.beginPath(); ctx.roundRect(-22, -4, 44, 22, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = pal.body2;
+    ctx.beginPath(); ctx.moveTo(-22, -4); ctx.quadraticCurveTo(0, -27, 22, -4); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    shade(ctx, () => { ctx.beginPath(); ctx.roundRect(-22, 6, 44, 12, 4); }, 0.26);
+    ctx.strokeStyle = pal.trim; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-22, -4); ctx.lineTo(22, -4); ctx.stroke();
+    ctx.fillStyle = pal.trim;
+    ctx.beginPath(); ctx.arc(0, -3, 4.2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail; ctx.stroke();
+    for (const [dx, dy, r] of [[-15, 15, 3], [-4, 18, 2.6], [9, 16, 3], [17, 13, 2.4]]) {
+      ctx.fillStyle = pal.trim;
+      ctx.beginPath(); ctx.arc(dx, dy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+  }
+  hilite(ctx, () => { ctx.beginPath(); ctx.ellipse(-7, -9, 4.5, 2.2, -0.3, 0, Math.PI * 2); }, 0.4);
+  ctx.restore();
+}
+
+const DRAW_FNS = { pearl: drawPearl, oxygen: drawOxygen, chest: drawChest, potion: drawPotion, treasure: drawTreasure };
 
 export function drawItem(ctx, item, timeSec) {
   const fn = DRAW_FNS[item.type];
-  if (fn) fn(ctx, item.x, item.y, timeSec + item.spawnT);
+  if (fn) fn(ctx, item.x, item.y, timeSec + item.spawnT, item.variant);
 }
 
 // ---- 획득 파티클 버스트 ------------------------------------------------------

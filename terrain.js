@@ -653,6 +653,52 @@ function alphaForLayer(chunk) {
   return chunk.zoneId === 'shallow' ? 0.55 : 0.5; // 중원경(bg)
 }
 
+// ---------------------------------------------------------------------------
+// 바다 바닥 — 레벨 목표 수심에 도달하면 화면 아래에서 스크롤되어 올라오는 해저면.
+// 구역 테마에 맞춰 모래바닥/뻘/침전물/열수구 바닥으로 다르게 그린다(정적 draw,
+// 캐싱 없이 매 프레임 직접 그려도 화면에 하나뿐이라 비용이 낮다).
+const FLOOR_STYLE = {
+  shallow: { top: '#e8d9a0', mid: '#cdb875', accent: '#a88f52' },
+  twilight: { top: '#6b7488', mid: '#4c5468', accent: '#333a4a' },
+  deepsea: { top: '#333a52', mid: '#232838', accent: '#161a26' },
+  vent: { top: '#4a3226', mid: '#2e1e16', accent: '#1a0f0a' },
+};
+
+export function drawSeafloor(ctx, topY, zoneId) {
+  const style = FLOOR_STYLE[zoneId] || FLOOR_STYLE.deepsea;
+  const bandBottom = topY + 260; // 화면 아래로 충분히 내려가는 두꺼운 바닥
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(-20, bandBottom);
+  const steps = 22;
+  for (let i = 0; i <= steps; i++) {
+    const x = -20 + ((CANVAS_W + 40) * i) / steps;
+    const bump = valueNoise1D(x, 42, 90) * 16 + valueNoise1D(x, 108, 28) * 7;
+    ctx.lineTo(x, topY + 30 + bump);
+  }
+  ctx.lineTo(CANVAS_W + 20, bandBottom);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, topY, 0, bandBottom);
+  grad.addColorStop(0, style.top);
+  grad.addColorStop(0.35, style.mid);
+  grad.addColorStop(1, style.accent);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
+  ctx.stroke();
+
+  // 표면 자갈/침전물 텍스처
+  for (let i = 0; i < 26; i++) {
+    const x = hash2(i, 71.3) * CANVAS_W;
+    const bump = valueNoise1D(x, 42, 90) * 16 + valueNoise1D(x, 108, 28) * 7;
+    const y = topY + 34 + bump + hash2(i, 19.7) * 26;
+    const r = 1.4 + hash2(i, 33.1) * 2.6;
+    ctx.fillStyle = rgba(INK, 0.16 + hash2(i, 51.2) * 0.12);
+    ctx.beginPath(); ctx.ellipse(x, y, r * 1.6, r, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function drawTerrainChunk(ctx, chunk, timeSec) {
   const isFg = chunk.layer === 'fg';
   ctx.save();

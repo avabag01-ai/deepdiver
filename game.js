@@ -5,7 +5,7 @@
 import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange, glow } from './utils.js';
 import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostProcess } from './zones.js';
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
-import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain } from './terrain.js';
+import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
 import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst } from './item.js';
 import {
@@ -41,6 +41,7 @@ const ctx = canvas.getContext('2d');
 
 const hudEl = document.getElementById('hud');
 const hudDepth = document.getElementById('depthReadout');
+const hudPhase = document.getElementById('phaseReadout');
 const hudScore = document.getElementById('scoreReadout');
 const hudDex = document.getElementById('dexReadout');
 const hudHealth = document.getElementById('healthReadout');
@@ -161,7 +162,12 @@ function makeInitialState() {
     running: false,
     over: false,
     cleared: false,
-    targetDepthM: null, // 선택한 다이빙 스팟의 목표 수심(도달하면 클리어) — 지구본 없이 진입 시 null
+    targetDepthM: null, // 선택한 다이빙 스팟의 목표 수심 — 지구본 없이 진입 시 null
+    phase: 'descending', // 'descending' | 'ascending' — 바닥의 보물을 얻으면 ascending으로 전환
+    scrollDir: 1,         // 1=하강(월드가 위로 흐름), -1=상승(월드가 아래로 흐름)
+    floorReached: false,  // 바닥(보물) 스폰 여부 — 한 레벨에 한 번만
+    floorY: null,         // 바닥이 스크롤되는 화면상 y좌표 (floorReached일 때만 사용)
+    maxDepthM: startDepthM, // 클리어 결과 화면에 "최고 도달 깊이"로 표시(상승 중엔 depthM이 줄어들므로 별도 추적)
     totalScrollPx: startDepthM * PX_PER_METER,
     score: 0,
     dex: new Set(),
@@ -211,6 +217,18 @@ function currentDepthM() {
 
 // 생물/아이템/지형 전부 화면 "아래"에서 나타나 위로 흘러가다 화면 위로 빠지면 제거된다.
 // (다이버가 하강 = 화면 기준으로는 세상이 위로 스크롤되는 것과 동치)
+// 하강 중엔 항상 화면 아래(다이버가 나아가는 방향의 반대편)에서 스폰돼 위로 흘러가고,
+// 상승 중엔 반대로 화면 위(다이버가 올라가는 방향의 앞쪽)에서 스폰돼 아래로 흘러가야
+// "그 방향으로 다가오는" 느낌이 난다.
+function spawnEdgeY(r) {
+  return state.scrollDir > 0 ? CANVAS_H + r + 10 : -r - 10;
+}
+
+// 방향에 따라 "이제 화면 밖으로 완전히 벗어났는지" 판정 — 하강 중엔 위로, 상승 중엔 아래로 나간다.
+function isOffscreenY(y, r) {
+  return state.scrollDir > 0 ? (y + r < -20) : (y - r > CANVAS_H + 20);
+}
+
 function spawnCreature(depthM) {
   if (state.creatures.length >= MAX_ENTITIES_ON_SCREEN) return;
   const zoneId = zoneAt(depthM).id;
@@ -230,7 +248,7 @@ function spawnCreature(depthM) {
   state.creatures.push({
     speciesId: sp.id,
     baseX: x,
-    y: CANVAS_H + r + 10,
+    y: spawnEdgeY(r),
     phase: Math.random() * Math.PI * 2,
     spawnT: Math.random() * 10,
     crossDir, crossSpeed,
@@ -247,7 +265,7 @@ function spawnItem(depthM) {
   const r = ITEM_TYPES[type].radius;
   const margin = r + 10;
   const x = randRange(margin, CANVAS_W - margin);
-  state.items.push(createItem(type, x, CANVAS_H + r + 10));
+  state.items.push(createItem(type, x, spawnEdgeY(r)));
 }
 
 // 회복 아이템은 다른 수집 아이템보다 훨씬 드물게, 별도 타이머로 스폰된다.
@@ -257,7 +275,7 @@ function spawnPotion() {
   const r = ITEM_TYPES.potion.radius;
   const margin = r + 10;
   const x = randRange(margin, CANVAS_W - margin);
-  state.items.push(createItem('potion', x, CANVAS_H + r + 10));
+  state.items.push(createItem('potion', x, spawnEdgeY(r)));
 }
 
 function spawnTerrainFg(depthM) {
@@ -309,7 +327,7 @@ function endGame() {
   state.running = false;
   overlayTitleEl.textContent = '조난';
   btnRestart.textContent = '다시 하강';
-  finalDepthEl.textContent = `도달 깊이 ${Math.floor(currentDepthM())} m`;
+  finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
   finalScoreEl.textContent = `수집 점수 ${state.score}`;
   finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
   overlay.classList.add('show');
@@ -325,10 +343,26 @@ function clearLevel() {
   }
   overlayTitleEl.textContent = '레벨 클리어! 🎉';
   btnRestart.textContent = '다시 도전';
-  finalDepthEl.textContent = `도달 깊이 ${Math.floor(currentDepthM())} m`;
+  finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
   finalScoreEl.textContent = `수집 점수 ${state.score}`;
   finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
   overlay.classList.add('show');
+}
+
+// 목표 수심(바닥)에 도달 — 해저 지형과 그 레벨을 상징하는 대형 보물을 스폰한다.
+// 보물을 먹기 전까지는 계속 하강 방향 그대로 유지(플레이어가 바닥까지 내려가 보물을
+// 직접 찾아가게 함).
+function reachFloor() {
+  state.floorReached = true;
+  state.floorY = CANVAS_H + 40;
+  const zoneId = zoneAt(state.targetDepthM).id;
+  state.items.push(createItem('treasure', CANVAS_W / 2, state.floorY - 40, zoneId));
+}
+
+// 보물을 획득하면 하강→상승으로 전환. 이제부터 수면(0m)까지 올라가는 게 목표.
+function beginAscent() {
+  state.phase = 'ascending';
+  state.scrollDir = -1;
 }
 
 // 즉사 대신 데미지 누적 방식. 피격 후 일정 시간 무적이라 같은 장애물에 연속으로
@@ -361,15 +395,27 @@ function update(dtSecRaw) {
 
   const depthM = currentDepthM();
   const scrollSpeed = scrollSpeedForDepth(depthM);
-  const scrollPx = scrollSpeed * dtSec;
+  // 부호 있는 스크롤량 — 하강(1)이면 기존과 동일, 상승(-1)이면 부호만 뒤집혀
+  // totalScrollPx(=깊이)가 줄어들고, 아래에 있는 "-= scrollPx" 코드들도 그대로
+  // 방향이 반전되어 지형/생물이 반대로(아래로) 흐르는 것처럼 보인다.
+  const scrollPx = scrollSpeed * dtSec * state.scrollDir;
   state.totalScrollPx += scrollPx;
+  state.maxDepthM = Math.max(state.maxDepthM, currentDepthM());
 
-  // 목표 수심(선택한 다이빙 스팟)에 도달하면 즉시 클리어 처리하고 이번 프레임의
-  // 나머지 스폰/충돌 로직은 건너뛴다 (막 클리어한 순간에 피격당하는 억울함 방지).
-  if (state.targetDepthM != null && !state.over && !state.cleared && currentDepthM() >= state.targetDepthM) {
+  // 상승 중 수면(0m)에 도달하면 진짜 레벨 클리어 — 단, 같은 프레임에 체력이 이미
+  // 0이 되어 실패 처리(endGame)됐다면 클리어로 덮어쓰지 않는다.
+  if (state.scrollDir < 0 && !state.over && !state.cleared && state.totalScrollPx <= 0) {
+    state.totalScrollPx = 0;
     clearLevel();
-    updateHud(currentDepthM());
+    updateHud(0);
     return;
+  }
+
+  // 하강 중 목표 수심에 도달하면 바로 끝내는 대신, 바닥 지형+보물을 스폰해서
+  // "바닥에 도달했다"는 걸 실제로 보여준다. 보물을 먹어야 상승으로 전환된다.
+  if (state.phase === 'descending' && state.targetDepthM != null && !state.floorReached
+    && !state.over && !state.cleared && currentDepthM() >= state.targetDepthM) {
+    reachFloor();
   }
 
   updatePlayer(player, dtSec, state.timeSec);
@@ -433,7 +479,7 @@ function update(dtSecRaw) {
     }
 
     const crossedOff = c.crossDir && (c.curX < -80 || c.curX > CANVAS_W + 80);
-    if (c.y + creatureVisualRadius(sp) < -20 || crossedOff) {
+    if (isOffscreenY(c.y, creatureVisualRadius(sp)) || crossedOff) {
       state.creatures.splice(i, 1);
     }
   }
@@ -451,6 +497,10 @@ function update(dtSecRaw) {
       if (def.kind === 'heal') {
         healPlayer();
         state.bursts.push(createBurst(it.x, it.y, '#7dffb0'));
+      } else if (def.kind === 'levelGoal') {
+        state.score += def.points;
+        state.bursts.push(createBurst(it.x, it.y, '#ffe27a'));
+        beginAscent();
       } else {
         state.score += def.points;
         state.bursts.push(createBurst(it.x, it.y, it.type === 'chest' ? '#ffe27a' : '#bfe8ff'));
@@ -458,9 +508,14 @@ function update(dtSecRaw) {
       state.items.splice(i, 1);
       continue;
     }
-    if (it.y + it.radius < -20) {
+    if (isOffscreenY(it.y, it.radius)) {
       state.items.splice(i, 1);
     }
+  }
+
+  // ---- 바다 바닥 스크롤 (목표 수심에 도달한 뒤에만 존재) ----
+  if (state.floorReached && state.floorY != null) {
+    state.floorY -= scrollPx;
   }
 
   // ---- 지형 갱신 + 충돌 (근경만) ----
@@ -475,22 +530,22 @@ function update(dtSecRaw) {
         state.bursts.push(createBurst(player.x, player.y, '#b8a488'));
       }
     }
-    if (ch.y + ch.height < -20) state.terrainFg.splice(i, 1);
+    if (state.scrollDir > 0 ? (ch.y + ch.height < -20) : (ch.y > CANVAS_H + 20)) state.terrainFg.splice(i, 1);
   }
   for (let i = state.terrainBg.length - 1; i >= 0; i--) {
     const ch = state.terrainBg[i];
     ch.y -= scrollPx * 0.6; // 중원경은 시차감을 위해 느리게
-    if (ch.y + ch.height < -20) state.terrainBg.splice(i, 1);
+    if (state.scrollDir > 0 ? (ch.y + ch.height < -20) : (ch.y > CANVAS_H + 20)) state.terrainBg.splice(i, 1);
   }
   for (let i = state.terrainDistant.length - 1; i >= 0; i--) {
     const ch = state.terrainDistant[i];
     ch.y -= scrollPx * 0.3; // 극원경: 3단 패럴랙스 중 가장 느리게
-    if (ch.y + ch.height < -20) state.terrainDistant.splice(i, 1);
+    if (state.scrollDir > 0 ? (ch.y + ch.height < -20) : (ch.y > CANVAS_H + 20)) state.terrainDistant.splice(i, 1);
   }
   for (let i = state.distantCreatures.length - 1; i >= 0; i--) {
     const c = state.distantCreatures[i];
     c.y -= scrollPx * 0.3;
-    if (c.y < -150) state.distantCreatures.splice(i, 1);
+    if (state.scrollDir > 0 ? c.y < -150 : c.y > CANVAS_H + 150) state.distantCreatures.splice(i, 1);
   }
 
   // ---- 파티클 버스트 ----
@@ -503,10 +558,22 @@ function update(dtSecRaw) {
 }
 
 function updateHud(depthM) {
-  hudDepth.textContent = `${Math.floor(depthM)} m`;
+  hudDepth.textContent = `${Math.max(0, Math.floor(depthM))} m`;
   hudScore.textContent = `점수 ${state.score}`;
   hudDex.textContent = `도감 ${state.dex.size}/${TOTAL_SPECIES}`;
   hudHealth.textContent = HEART_FULL.repeat(state.health) + HEART_EMPTY.repeat(MAX_HEALTH - state.health);
+  if (hudPhase) {
+    if (state.targetDepthM == null) {
+      hudPhase.style.display = 'none';
+    } else if (state.phase === 'ascending') {
+      hudPhase.style.display = 'block';
+      hudPhase.textContent = `⬆️ 수면까지 ${Math.max(0, Math.ceil(depthM))} m`;
+    } else {
+      hudPhase.style.display = 'block';
+      const remain = Math.max(0, Math.ceil(state.targetDepthM - depthM));
+      hudPhase.textContent = state.floorReached ? '⬇️ 보물을 찾아라!' : `⬇️ 목표까지 ${remain} m`;
+    }
+  }
 }
 
 function render() {
@@ -553,6 +620,11 @@ function render() {
     } else {
       sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
     }
+  }
+
+  // 목표 수심의 바다 바닥 (보물을 아직 안 먹었을 때만 — 상승 시작하면 서서히 아래로 사라짐)
+  if (state.floorReached && state.floorY != null && state.floorY < CANVAS_H + 260) {
+    drawSeafloor(ctx, state.floorY, zoneAt(state.targetDepthM).id);
   }
 
   for (const it of state.items) drawItem(ctx, it, state.timeSec);
@@ -657,5 +729,6 @@ if (state.devAutoStart) {
 } else {
   showGlobeScreen();
 }
+
 
 requestAnimationFrame(loop);
