@@ -169,9 +169,43 @@ export const DIVE_SITES = [
       spawnBias: { reefshark: 2.5, flyingfish: 2 },
     },
   },
-  { id: 'redsea', name: '홍해', place: '이집트', lat: 27.73, lon: 34.25, targetDepth: 1000, zone: 'deepsea' },
-  { id: 'philtrench', name: '필리핀 해구', place: '필리핀', lat: 10.0, lon: 126.6, targetDepth: 1600, zone: 'deepsea' },
-  { id: 'tongatrench', name: '통가 해구', place: '통가', lat: -23.0, lon: -174.75, targetDepth: 3000, zone: 'deepsea' },
+  {
+    id: 'redsea', name: '홍해', place: '이집트', lat: 27.73, lon: 34.25, targetDepth: 1000, zone: 'deepsea',
+    theme: { // 난파선의 바다 — 따뜻한 기운의 남색 + 침몰선 실루엣 + 홍해 특유의 붉은 산호 장식
+      tint: '#3a2a5e', tintK: 0.3,
+      wall: {
+        accent: '#e0566a',
+        decor: {
+          anemones: [
+            { base: '#c93f5e', tentacle: '#ff7f9a', tip: '#ffe0e8' },
+            { base: '#d95a3a', tentacle: '#ff9a6a', tip: '#ffe4d0' },
+          ],
+          coral: { branch: '#a04a5a', tip: '#e08a9a' },
+          starfish: ['#e0455a', '#c73a50', '#e0662f'],
+        },
+        decorDensity: 1.3,
+      },
+      signature: 'shipwreck',
+    },
+  },
+  {
+    id: 'philtrench', name: '필리핀 해구', place: '필리핀', lat: 10.0, lon: 126.6, targetDepth: 1600, zone: 'deepsea',
+    theme: { // 발광 생물의 바다 — 푸른 기운의 헤드램프 + 발광 종 스폰 대폭 가중
+      tint: '#0a1430', tintK: 0.3,
+      lampColor: '#cfe0ff',
+      spawnBias: {
+        lanternfish: 2.5, hatchetfish: 2, moonjelly: 2, barreleye: 2,
+        anglerfish: 2.5, pelicaneel: 2, dragonfish: 2,
+      },
+    },
+  },
+  {
+    id: 'tongatrench', name: '통가 해구', place: '통가', lat: -23.0, lon: -174.75, targetDepth: 3000, zone: 'deepsea',
+    theme: { // 해저 화산호 — 검정+옅은 자주 색조, 극원경 하단의 희미한 붉은 화산 글로우
+      tint: '#170a18', tintK: 0.45,
+      signature: 'volcano',
+    },
+  },
   { id: 'prtrench', name: '푸에르토리코 해구', place: '대서양', lat: 19.8, lon: -66.75, targetDepth: 5000, zone: 'vent' },
   { id: 'mariana', name: '마리아나 해구 · 챌린저 딥', place: '태평양', lat: 11.35, lon: 142.2, targetDepth: 10935, zone: 'vent' },
 ];

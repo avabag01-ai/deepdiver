@@ -756,6 +756,45 @@ export function drawSeafloor(ctx, topY, zoneId) {
   ctx.restore();
 }
 
+// 침몰선 실루엣 — 홍해 테마의 시그니처. 극원경 레이어에 저비용 폴리곤(선체+마스트+
+// 현창)으로 흐릿하게 지나간다. 매 프레임 몇 개의 도형만 그리므로 캐싱 불필요.
+export function drawShipwreck(ctx, x, y, scale = 1, alpha = 0.16) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#0c1526';
+  // 선체 (살짝 기울어 가라앉은 자세)
+  ctx.rotate(-0.12);
+  ctx.beginPath();
+  ctx.moveTo(-70, 0);
+  ctx.quadraticCurveTo(-76, 14, -58, 22);
+  ctx.lineTo(52, 22);
+  ctx.quadraticCurveTo(74, 12, 78, -4);
+  ctx.lineTo(58, 0);
+  ctx.closePath();
+  ctx.fill();
+  // 선실
+  ctx.fillRect(-18, -14, 34, 15);
+  ctx.fillRect(-8, -22, 18, 9);
+  // 마스트 2개 (하나는 부러짐)
+  ctx.fillRect(-44, -34, 3, 35);
+  ctx.save();
+  ctx.translate(30, -8);
+  ctx.rotate(0.5); // 부러져 기운 마스트
+  ctx.fillRect(0, -26, 3, 27);
+  ctx.restore();
+  // 현창 (둥근 창 — 배경이 비치는 구멍처럼 살짝 밝게)
+  ctx.globalAlpha = alpha * 0.9;
+  ctx.fillStyle = '#4a6a94';
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(-46 + i * 26, 10, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function drawTerrainChunk(ctx, chunk, timeSec) {
   const isFg = chunk.layer === 'fg';
   ctx.save();

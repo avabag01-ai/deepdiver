@@ -235,7 +235,8 @@ const LAMP_BODY = '#FFE07A';
 const LAMP_LENS = '#FFFBEA';
 
 // lampT: 헤드램프 글로우 강도(0~1) — 밝은 표층 0, 어두워질수록 1 (기본 1)
-export function drawPlayer(ctx, player, lampT = 1) {
+// lampColor: 스팟 테마의 램프 글로우 색 (기본 따뜻한 노랑, 발광 테마는 푸른빛)
+export function drawPlayer(ctx, player, lampT = 1, lampColor = '#fff3c4') {
   const x = player.x;
   const y = player.y + player.visualYOffset;
   const facing = player.facing;
@@ -260,7 +261,7 @@ export function drawPlayer(ctx, player, lampT = 1) {
   // 아래 각 파트는 이 비율을 기준으로 배치된다 — 머리 중심 (2,-11), 몸통 중심 (0,5).
 
   // 헤드램프 광원 (아래쪽/전방을 비추는 근거광) — 밝은 물에선 꺼져 있다가 어두워질수록 켜짐
-  if (lampT > 0.02) glow(ctx, 8, -19, 40, '#fff3c4', 0.32 * lampT);
+  if (lampT > 0.02) glow(ctx, 8, -19, 40, lampColor, 0.32 * lampT);
 
   // ---- 산소통 (등 뒤에 옆모습으로 살짝 걸치게, 짧고 통통하게) ----
   ctx.save();

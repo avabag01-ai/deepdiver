@@ -5,7 +5,7 @@
 import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange, glow } from './utils.js';
 import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostProcess } from './zones.js';
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
-import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor } from './terrain.js';
+import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor, drawShipwreck } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
 import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst, createBubbleColumn, createBreathBubbles, updateBubbles, drawBubbles } from './item.js';
 import {
@@ -213,6 +213,8 @@ function makeInitialState() {
     distantCreatureTimer: randRange(4, 8),
     fishSchools: [],
     fishSchoolTimer: randRange(3, 7),
+    wrecks: [],                      // 홍해 테마: 극원경 침몰선 실루엣
+    wreckTimer: randRange(6, 12),
     bursts: [],
     bubbles: [],
     ambientBubbleTimer: randRange(1.2, 2.4),
@@ -611,6 +613,24 @@ function update(dtSecRaw) {
     }
   }
 
+  // 홍해 테마: 극원경에 침몰선 실루엣이 가끔 지나감
+  if (currentTheme?.signature === 'shipwreck') {
+    state.wreckTimer -= dtSec;
+    if (state.wreckTimer <= 0 && state.wrecks.length < 2) {
+      state.wrecks.push({
+        x: randRange(70, CANVAS_W - 70),
+        y: spawnEdgeY(90),
+        scale: 0.8 + Math.random() * 0.7,
+      });
+      state.wreckTimer = randRange(14, 24);
+    }
+  }
+  for (let i = state.wrecks.length - 1; i >= 0; i--) {
+    const w = state.wrecks[i];
+    w.y -= scrollPx * 0.3; // 극원경 시차
+    if (state.scrollDir > 0 ? w.y < -160 : w.y > CANVAS_H + 160) state.wrecks.splice(i, 1);
+  }
+
   state.ambientBubbleTimer -= dtSec;
   if (state.ambientBubbleTimer <= 0) {
     spawnAmbientBubbles(depthM);
@@ -839,8 +859,24 @@ function render() {
 
   drawBackground(ctx, depthM, state.timeSec, currentTheme);
 
+  // 통가 테마: 화면 하단의 희미한 붉은 화산 글로우 (플리커)
+  if (currentTheme?.signature === 'volcano') {
+    const flicker = 0.22 + Math.sin(state.timeSec * 1.7) * 0.05 + Math.sin(state.timeSec * 4.3) * 0.025;
+    const gx = CANVAS_W * 0.5 + Math.sin(state.timeSec * 0.11) * 60;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter'; // 어두운 배경/색보정에 눌리지 않게 가산 합성
+    const g = ctx.createRadialGradient(gx, CANVAS_H + 60, 20, gx, CANVAS_H + 60, 320);
+    g.addColorStop(0, `rgba(255,80,28,${flicker})`);
+    g.addColorStop(0.55, `rgba(190,45,20,${flicker * 0.5})`);
+    g.addColorStop(1, 'rgba(120,20,10,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.restore();
+  }
+
   // 극원경: 가장 뒤쪽 레이어 — 흐릿한 큰 실루엣 + 가끔 스쳐가는 거대 생물 그림자
   for (const ch of state.terrainDistant) drawTerrainChunk(ctx, ch, state.timeSec);
+  for (const w of state.wrecks) drawShipwreck(ctx, w.x, w.y, w.scale);
   if (state.distantCreatures.length) {
     ctx.save();
     ctx.globalAlpha = 0.18;
@@ -925,10 +961,10 @@ function render() {
     const blinkOn = Math.floor(state.timeSec * 10) % 2 === 0;
     ctx.save();
     ctx.globalAlpha = blinkOn ? 1 : 0.35;
-    drawPlayer(ctx, player, lampT);
+    drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
     ctx.restore();
   } else {
-    drawPlayer(ctx, player, lampT);
+    drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
   }
 
   for (const b of state.bursts) drawBurst(ctx, b);
