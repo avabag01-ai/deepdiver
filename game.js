@@ -27,7 +27,10 @@ const HEART_EMPTY = '🖤';
 
 // 극원경(distant) 레이어에 가끔 스쳐가는 거대 해양생물 실루엣 (충돌 없음, 순수 연출).
 // 헤드램프 암전 구역(deepsea/vent)은 이미 어둠 연출이 있으므로 밝은 구역에서만 배치.
-const DISTANT_SILHOUETTE_BY_ZONE = { shallow: 'reefshark', twilight: 'reefshark' };
+const DISTANT_SILHOUETTE_BY_ZONE = {
+  shallow: ['reefshark', 'seaturtle', 'orca'],
+  twilight: ['reefshark', 'orca'],
+};
 
 // 열린 바다를 유영하며 화면을 가로질러 지나갈 수 있는 종 — 매복형(바이퍼피시/앵글러 등)이나
 // 고정형 장식(말미잘/산호 등은 애초에 creatures가 아니라 terrain에 구워짐)은 제외.
@@ -206,7 +209,9 @@ function makeInitialState() {
     terrainBg: [],
     terrainDistant: [],
     distantCreatures: [],
-    distantCreatureTimer: randRange(6, 12),
+    distantCreatureTimer: randRange(4, 8),
+    fishSchools: [],
+    fishSchoolTimer: randRange(3, 7),
     bursts: [],
     bubbles: [],
     ambientBubbleTimer: randRange(1.2, 2.4),
@@ -375,8 +380,9 @@ function spawnTerrainDistant(depthM) {
 // 목업 참조: 헤드램프 뒤쪽 원경에 흐릿하게 스쳐가는 거대 해양생물 실루엣 (충돌 없음)
 function spawnDistantCreature(depthM) {
   const zoneId = zoneAt(depthM).id;
-  const spId = DISTANT_SILHOUETTE_BY_ZONE[zoneId];
-  if (!spId) return;
+  const pool = DISTANT_SILHOUETTE_BY_ZONE[zoneId];
+  if (!pool) return;
+  const spId = pool[Math.floor(Math.random() * pool.length)];
   const sp = speciesById(spId);
   state.distantCreatures.push({
     speciesId: spId,
@@ -384,6 +390,29 @@ function spawnDistantCreature(depthM) {
     y: CANVAS_H + 80,
     scale: 2.1 + Math.random() * 1.4,
     phase: Math.random() * Math.PI * 2,
+    spawnT: Math.random() * 10,
+  });
+}
+
+// 원경 물고기 떼 — 점 실루엣 무리가 배경을 가로질러 헤엄쳐 지나감 (저비용 배경 채움).
+// 밝은 구역(shallow/twilight)에서만; 암전 구역은 어둠 연출이 있어 불필요.
+function spawnFishSchool(depthM) {
+  const zoneId = zoneAt(depthM).id;
+  if (zoneId !== 'shallow' && zoneId !== 'twilight') return;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const count = 8 + Math.floor(Math.random() * 7);
+  const seeds = Array.from({ length: count }, (_, i) => ({
+    dx: -dir * i * (7 + Math.random() * 6) + (Math.random() - 0.5) * 10,
+    dy: (Math.random() - 0.5) * 26,
+    r: 1.6 + Math.random() * 1.4,
+    phase: Math.random() * Math.PI * 2,
+  }));
+  state.fishSchools.push({
+    x: dir === 1 ? -80 : CANVAS_W + 80,
+    y: randRange(CANVAS_H * 0.15, CANVAS_H * 0.75),
+    dir,
+    speed: randRange(22, 40),
+    seeds,
     spawnT: Math.random() * 10,
   });
 }
@@ -552,8 +581,22 @@ function update(dtSecRaw) {
   state.distantCreatureTimer -= dtSec;
   if (state.distantCreatureTimer <= 0) {
     spawnDistantCreature(depthM);
-    state.distantCreatureTimer = randRange(9, 18);
+    state.distantCreatureTimer = randRange(6, 11); // 배경 허전함 완화 — 더 자주
   }
+  state.fishSchoolTimer -= dtSec;
+  if (state.fishSchoolTimer <= 0) {
+    spawnFishSchool(depthM);
+    state.fishSchoolTimer = randRange(7, 13);
+  }
+  for (let i = state.fishSchools.length - 1; i >= 0; i--) {
+    const fs = state.fishSchools[i];
+    fs.x += fs.dir * fs.speed * dtSec;
+    fs.y -= scrollPx * 0.45; // 중경보다 살짝 뒤 시차
+    if (fs.x < -220 || fs.x > CANVAS_W + 220 || fs.y < -120 || fs.y > CANVAS_H + 120) {
+      state.fishSchools.splice(i, 1);
+    }
+  }
+
   state.ambientBubbleTimer -= dtSec;
   if (state.ambientBubbleTimer <= 0) {
     spawnAmbientBubbles(depthM);
@@ -783,10 +826,26 @@ function render() {
   for (const ch of state.terrainDistant) drawTerrainChunk(ctx, ch, state.timeSec);
   if (state.distantCreatures.length) {
     ctx.save();
-    ctx.globalAlpha = 0.15;
+    ctx.globalAlpha = 0.18;
     for (const c of state.distantCreatures) {
       const sp = speciesById(c.speciesId);
       sp.draw(ctx, c.x, c.y, state.timeSec + c.spawnT, sp.size * c.scale);
+    }
+    ctx.restore();
+  }
+
+  // 원경 물고기 떼 (점 실루엣 무리 — 배경 허전함 완화)
+  if (state.fishSchools.length) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(16,30,48,0.4)';
+    for (const fs of state.fishSchools) {
+      const t = state.timeSec + fs.spawnT;
+      for (const sd of fs.seeds) {
+        const wob = Math.sin(t * 2.2 + sd.phase) * 3;
+        ctx.beginPath();
+        ctx.ellipse(fs.x + sd.dx, fs.y + sd.dy + wob, sd.r * 1.7, sd.r, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
