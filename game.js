@@ -7,7 +7,7 @@ import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostPr
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
 import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
-import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst, createBubbleColumn, updateBubbles, drawBubbles } from './item.js';
+import { ITEM_TYPES, createItem, drawItem, createBurst, updateBurst, drawBurst, createBubbleColumn, createBreathBubbles, updateBubbles, drawBubbles } from './item.js';
 import {
   createGlobeState, drawGlobe, attachGlobeDrag, updateGlobeIdleSpin, drawSpaceBackground,
   DIVE_SITES, projectSites, drawPins, hitTestPins,
@@ -560,12 +560,16 @@ function update(dtSecRaw) {
     sound.playBubble(0.8 + Math.random() * 0.3, 0.05); // 환경 기포는 아주 은은하게
     state.ambientBubbleTimer = randRange(1.4, 2.8);
   }
-  // 다이버 숨쉬기 리듬에 맞춘 기포음 (트레일 자체는 시각 전용 사인 사이클이라
-  // 별도 타이머로 소리만 주기적으로 낸다)
+  // 다이버 호흡 리듬: 2~3초마다 마스크/호흡기 위치에서 기포 뭉치가 뿜어져 나와
+  // 화면 위로 또렷하게 상승한다 (소리도 같은 타이밍에)
   state.breathSoundTimer -= dtSec;
   if (state.breathSoundTimer <= 0) {
+    if (state.bubbles.length < MAX_BUBBLES) {
+      const room = MAX_BUBBLES - state.bubbles.length;
+      state.bubbles.push(...createBreathBubbles(player.x + player.facing * 7, player.y - 16).slice(0, room));
+    }
     sound.playBubble(1 + Math.random() * 0.4, 0.14);
-    state.breathSoundTimer = randRange(1.6, 2.6);
+    state.breathSoundTimer = randRange(2.0, 3.0);
   }
   state.creatureHintCooldown -= dtSec;
 

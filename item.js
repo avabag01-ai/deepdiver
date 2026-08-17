@@ -273,6 +273,29 @@ export function createBubbleColumn(x, baseY, count, sizeScale = 1, speedScale = 
   return bubbles;
 }
 
+// 다이버 호흡 기포 뭉치 — 마스크/호흡기 위치에서 주기적으로 뿜어져 나와 화면 위로
+// 또렷하게 상승하는 연출용. 환경 기포보다 크고 불투명하며, 상승하면서 점점 커진다.
+export function createBreathBubbles(x, y) {
+  const count = 3 + Math.floor(Math.random() * 4); // 3~6개, 크기 제각각
+  const bubbles = [];
+  for (let i = 0; i < count; i++) {
+    bubbles.push({
+      x: x + (Math.random() - 0.5) * 9,
+      y: y - Math.random() * 10,
+      r: 1.6 + Math.random() * 2.2,
+      vy: 38 + Math.random() * 26, // 스크롤과 별개로 화면 기준 위로 (충분히 빠르게)
+      wobPhase: Math.random() * Math.PI * 2,
+      wobSpeed: 3 + Math.random() * 2.5,
+      wobAmp: 3 + Math.random() * 4,
+      life: 0,
+      maxLife: 2.6 + Math.random() * 1.2, // 화면 위까지 도달할 만큼 길게
+      alpha: 0.85,
+      grow: 0.9, // 수명에 걸쳐 최대 +90% 크기 성장 (수압 감소 연출)
+    });
+  }
+  return bubbles;
+}
+
 export function updateBubbles(bubbles, dtSec) {
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const b = bubbles[i];
@@ -286,7 +309,9 @@ export function drawBubbles(ctx, bubbles) {
   for (const b of bubbles) {
     const growT = Math.min(1, b.life / 0.3);
     const fadeT = Math.max(0, 1 - b.life / b.maxLife);
+    const lifeFrac = Math.min(1, b.life / b.maxLife);
     const x = b.x + Math.sin(b.life * b.wobSpeed + b.wobPhase) * b.wobAmp;
-    drawBubble(ctx, x, b.y, b.r * (0.55 + 0.45 * growT), 0.5 * fadeT);
+    const r = b.r * (0.55 + 0.45 * growT) * (1 + (b.grow || 0) * lifeFrac); // 상승하며 성장
+    drawBubble(ctx, x, b.y, r, (b.alpha ?? 0.5) * fadeT);
   }
 }
