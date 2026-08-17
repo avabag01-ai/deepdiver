@@ -8,10 +8,13 @@ export const ITEM_TYPES = {
   chest: { id: 'chest', kind: 'collectible', points: 3, radius: 10, name: '보물상자' },
   // 회복 아이템: 발광 해초 캡슐 — 먹으면 데미지 1 회복 (풀피면 보너스 점수로 대체)
   potion: { id: 'potion', kind: 'heal', points: 2, radius: 9, name: '발광 해초 캡슐' },
+  // 레벨 목표 대형 아이템: 그 스팟의 바닥에서 한 번만 등장. 획득하면 하강→상승 전환 트리거.
+  treasure: { id: 'treasure', kind: 'levelGoal', points: 10, radius: 24, name: '봉인된 보물' },
 };
 
-export function createItem(type, x, y) {
-  return { type, x, y, radius: ITEM_TYPES[type].radius, spawnT: 0, collected: false };
+// variant: treasure 전용 — 구역별 테마(shallow/twilight/deepsea/vent)로 생김새를 다르게
+export function createItem(type, x, y, variant = null) {
+  return { type, x, y, radius: ITEM_TYPES[type].radius, spawnT: 0, collected: false, variant };
 }
 
 // 은은하게 밝기가 오르내리는 펄스 계수 (0~1, 아이템마다 위상을 다르게 줘서 화면에

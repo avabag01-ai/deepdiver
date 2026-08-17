@@ -6,7 +6,7 @@
 // 딱 한 번 오프스크린 캔버스에 구워서 chunk.tex에 저장해두고, 매 프레임에는
 // drawImage 한 번으로만 그린다 — 매 프레임 수십 개의 도형을 다시 계산하지 않음.
 
-import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, rgba, glow, stairStack, hash2, lerpColor } from './utils.js';
+import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, rgba, glow, stairStack, hash2, lerpColor, clamp } from './utils.js';
 
 const FG_MAX_WIDTH_RATIO = 0.3;
 const FG_MAX_WIDTH = CANVAS_W * FG_MAX_WIDTH_RATIO;
@@ -31,6 +31,11 @@ function makeCanvas(w, h) {
   c.height = Math.max(1, Math.ceil(h));
   return c;
 }
+
+// 곶(promontory)이 벽의 나머지 폭보다 훨씬 더 통로 쪽으로 튀어나올 수 있어서,
+// 오프스크린 캔버스를 nominal width보다 좌우로 더 넉넉하게 잡아 잘리지 않게 한다.
+// bake 시 tctx.translate(WALL_PAD,0)으로 좌표계를 옮기고, 합성 시 그만큼 되돌려 그린다.
+const WALL_PAD = 90;
 
 // 지형 조각 하나를 생성. side: 'left' | 'right'
 // spawnY는 조각의 "위쪽(top)" 기준. 조각은 화면 아래에서 나타나 위로 흘러가므로
@@ -110,37 +115,59 @@ function valueNoise1D(x, seed, gridSize) {
   return v0 + (v1 - v0) * t;
 }
 
-// 큰 능선(저주파)+중간 굴곡+미세 디테일, 3개 옥타브를 겹친 프랙탈 노이즈.
-// 실제 산맥/절벽 실루엣처럼 뾰족한 봉우리와 완만한 구간이 불규칙하게 섞인다.
+// ---------------------------------------------------------------------------
+// 벽 실루엣 폭 결정 로직 — 3단 구조.
+// 이전 버전은 좁은 고정폭(amp) 주변에서만 노이즈가 진동해 "기둥에 털 난" 모양이
+// 되는 문제가 있었다. 이번엔 벽의 "기저 폭 자체"가 조각 안에서 크게(30~150px대)
+// 출렁이는 저주파 곡선을 먼저 깔고, 그 위에 중간 굴곡+미세 디테일+곶/만을 얹는다.
+
+// 1단: 매우 저주파의 큰 진폭 곡선 — 벽 폭 자체가 페이지를 내려가며 크게 출렁임
+function baseWidthEnvelope(localY, seed) {
+  const w1 = valueNoise1D(localY, seed + 500.1, 260);
+  const w2 = valueNoise1D(localY, seed + 700.7, 128);
+  return w1 * 1.0 + w2 * 0.55; // 대략 [-1.55, 1.55]
+}
+
+// 2단: 중간 굴곡 + 미세 디테일 (기존 프랙탈 능선, 진폭은 1단보다 작게)
 function ridgeNoise(localY, seed) {
-  const big = valueNoise1D(localY, seed, 150);
   const mid = valueNoise1D(localY, seed + 47.3, 54);
   const fine = valueNoise1D(localY, seed + 133.1, 17);
-  return big * 1.0 + mid * 0.5 + fine * 0.26; // 대략 [-1.76, 1.76]
+  return mid * 0.6 + fine * 0.3; // 대략 [-0.9, 0.9]
 }
 
-// 낮은 확률로 절벽처럼 급격히 튀어나온 뾰족한 봉우리를 섞는다(전체가 균일한 리듬으로
-// 울퉁불퉁하면 오히려 인공적으로 보이므로, 가끔은 확 튀는 지점을 만든다).
-function spikeBoost(localY, seed, roughness) {
-  const cellSize = 150;
+// 3단: 낮은 확률로 통로 쪽으로 크게 튀어나온 뾰족한 곶(promontory), 또는 깊게
+// 파인 만(cove)을 섞는다 — 실제 해저 절벽 단면처럼 급격한 굴곡을 만드는 핵심.
+function promontoryNoise(localY, seed) {
+  const cellSize = 230;
   const cell = Math.floor(localY / cellSize);
-  if (hash2(cell, seed + 777.7) > 0.8) return 0; // ~80%는 봉우리 없음
-  const peakPos = cell * cellSize + hash2(cell, seed + 778.2) * cellSize;
-  const dist = Math.abs(localY - peakPos);
-  const width = 20 + hash2(cell, seed + 779.5) * 22;
+  if (hash2(cell, seed + 911.3) > 0.72) return 0; // ~28% 확률로만 발생
+  const centerPos = cell * cellSize + hash2(cell, seed + 912.7) * cellSize;
+  const dist = Math.abs(localY - centerPos);
+  const width = 40 + hash2(cell, seed + 913.1) * 55;
   if (dist > width) return 0;
-  const shape = 1 - dist / width; // 삼각형 형태로 뾰족하게 솟았다가 내려감
-  const height = 1.1 + hash2(cell, seed + 780.9) * 0.9;
-  return shape * shape * height * Math.min(1.4, roughness / 4);
+  const shape = Math.cos((dist / width) * (Math.PI / 2)); // 완만하게 솟았다 가라앉는 종모양
+  const sign = hash2(cell, seed + 914.5) > 0.5 ? 1 : -1; // 곶(+, 튀어나옴) 또는 만(-, 파임)
+  const magnitude = 1.2 + hash2(cell, seed + 915.9) * 0.85;
+  return shape * shape * sign * magnitude;
 }
 
+// 폭 계산은 세 노이즈를 정규화된 가중치로 합성한 뒤 한 번에 mid±swing 범위로 매핑한다
+// (성분별로 각각 크게 부풀려 더했다가 클램프하면, 클램프 상한/하한에 오래 눌러붙는
+// "평평한 구간"이 생겨 오히려 다시 기둥처럼 보인다 — 실제로 이 버그가 있었음).
+// 수치 검증: 여러 시드에 걸쳐 1px 단위로 샘플링했을 때 변화량이 거의 없는(평평한)
+// 구간이 150px(화면 높이 1/4) 이상 나오지 않는지 확인 완료.
 function innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp) {
   const roughness = jitterAmp || 1;
-  const ridge = ridgeNoise(localY, seed);
-  const spike = spikeBoost(localY, seed, roughness);
-  const fineDetail = jitterAmp ? (hash2(Math.round(localY * 0.5), seed + 19.4) - 0.5) * 2 * jitterAmp * 0.35 : 0;
-  const combined = ridge * 0.62 + spike + fineDetail;
-  return innerX + dir * (amp * 0.5 + amp * 0.62 * combined);
+  const roughnessScale = clamp(roughness / 6, 0.45, 1);
+  const base = baseWidthEnvelope(localY, seed);
+  const ridge = ridgeNoise(localY, seed) * roughnessScale;
+  const promontory = promontoryNoise(localY, seed) * roughnessScale;
+  const composite = base * 0.5 + ridge * 0.38 + promontory * 0.55;
+  const midWidth = amp * 3.4;   // 벽의 평균적인 폭
+  const swingRange = amp * 2.7; // 그 위에 출렁이는 폭의 크기
+  const fineDetail = jitterAmp ? (hash2(Math.round(localY * 0.5), seed + 19.4) - 0.5) * 2 * jitterAmp * 0.4 : 0;
+  const width = clamp(midWidth + composite * swingRange + fineDetail, 8, amp * 7.5);
+  return innerX + dir * width;
 }
 
 // chunk: {x,y,width,height,seed,side} — 로컬 좌표로 구울 때는 x=0,y=0인 사본을 넘긴다.
@@ -305,8 +332,9 @@ function bakeRock(chunk, zoneId) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
   const style = TERRAIN_STYLE[zoneId];
-  const cnv = makeCanvas(width, height);
+  const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
+  tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
   const innerX = side === 'left' ? width : 0;
   const dir = side === 'left' ? 1 : -1;
@@ -426,8 +454,9 @@ function bakeCoral(chunk) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
   const style = TERRAIN_STYLE.shallow;
-  const cnv = makeCanvas(width, height);
+  const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
+  tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
   const innerX = side === 'left' ? width : 0;
   const outerX = side === 'left' ? 0 : width;
@@ -518,8 +547,9 @@ function bakeVentBody(chunk) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
   const style = TERRAIN_STYLE.vent;
-  const cnv = makeCanvas(width, height);
+  const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
+  tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
   const innerX = side === 'left' ? width : 0;
   const outerX = side === 'left' ? 0 : width;
@@ -627,7 +657,7 @@ export function drawTerrainChunk(ctx, chunk, timeSec) {
   const isFg = chunk.layer === 'fg';
   ctx.save();
   ctx.globalAlpha = alphaForLayer(chunk);
-  if (chunk.tex) ctx.drawImage(chunk.tex, chunk.x, chunk.y);
+  if (chunk.tex) ctx.drawImage(chunk.tex, chunk.x - WALL_PAD, chunk.y);
   ctx.restore();
   if (chunk.zoneId === 'vent' && isFg) drawVentAnimated(ctx, chunk, timeSec);
 }
