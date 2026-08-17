@@ -14,6 +14,7 @@ import {
   loadClearedSet, saveClearedSet, isSiteUnlocked,
 } from './globe.js';
 import * as sound from './sound.js';
+import { UPGRADES, MAGNET_RADII, loadPearls, savePearls, loadUpgrades, saveUpgrades } from './shop.js';
 
 const PX_PER_METER = 20;
 const MAX_ENTITIES_ON_SCREEN = 7;
@@ -91,6 +92,15 @@ const GLOBE_R = Math.min(globeCanvas.width, globeCanvas.height) * 0.37;
 
 const globeState = createGlobeState();
 let clearedSet = loadClearedSet();
+
+// ---- 메타 진행: 진주 재화 + 영구 업그레이드 (localStorage) ----
+let pearlBalance = loadPearls();
+let upgrades = loadUpgrades();
+const maxHealth = () => MAX_HEALTH + (upgrades.oxygen || 0);
+const invulnDuration = () => INVULN_DURATION + 0.4 * (upgrades.suit || 0);
+const lampMul = () => 1 + 0.2 * (upgrades.lamp || 0);
+const finSpeedMul = () => 1 + 0.1 * (upgrades.fins || 0);
+const magnetRadius = () => MAGNET_RADII[upgrades.magnet || 0];
 let selectedPin = null;   // 카드에 표시 중인 핀 (projectSites 결과 원소)
 let currentSite = null;   // 지금 다이빙 중인 스팟 (devAutoStart로 진입하면 null)
 let currentTheme = null;  // currentSite.theme — 스팟 고유 분위기 레이어 (?depth= 개발 모드는 null)
@@ -150,6 +160,79 @@ globeCanvas.addEventListener('pointerup', (e) => {
   updateSiteCardUI();
 });
 
+// ---- 장비 상점 UI ----
+const shopPanel = document.getElementById('shopPanel');
+const shopList = document.getElementById('shopList');
+const shopBalanceEl = document.getElementById('shopBalance');
+const pearlBalanceEl = document.getElementById('pearlBalance');
+const btnShop = document.getElementById('btnShop');
+const btnShopClose = document.getElementById('btnShopClose');
+const btnShopFromOver = document.getElementById('btnShopFromOver');
+
+function updatePearlUI() {
+  pearlBalanceEl.textContent = `🦪 ${pearlBalance}`;
+  shopBalanceEl.textContent = `🦪 ${pearlBalance}`;
+}
+
+function renderShop() {
+  updatePearlUI();
+  shopList.innerHTML = '';
+  for (const u of UPGRADES) {
+    const lv = upgrades[u.id] || 0;
+    const maxed = lv >= u.maxLevel;
+    const price = maxed ? null : u.prices[lv];
+    const row = document.createElement('div');
+    row.className = 'shopRow';
+    const dots = '●'.repeat(lv) + '○'.repeat(u.maxLevel - lv);
+    row.innerHTML = `
+      <div class="icon">${u.icon}</div>
+      <div class="info">
+        <div class="name">${u.name}</div>
+        <div class="desc">${u.desc} — 현재: ${u.levelDesc(lv)}</div>
+        <div class="lvl">${dots} Lv.${lv}/${u.maxLevel}</div>
+      </div>`;
+    const btn = document.createElement('button');
+    if (maxed) {
+      btn.textContent = 'MAX';
+      btn.className = 'maxed';
+      btn.disabled = true;
+    } else if (pearlBalance < price) {
+      btn.textContent = `🦪 ${price}`;
+      btn.className = 'cantAfford';
+      btn.disabled = true;
+    } else {
+      btn.textContent = `🦪 ${price}`;
+      btn.addEventListener('click', () => {
+        if (pearlBalance < price || (upgrades[u.id] || 0) >= u.maxLevel) return;
+        pearlBalance -= price;
+        upgrades[u.id] = (upgrades[u.id] || 0) + 1;
+        savePearls(pearlBalance);
+        saveUpgrades(upgrades);
+        sound.playChest(); // 구매 확정음
+        renderShop();
+      });
+    }
+    row.appendChild(btn);
+    shopList.appendChild(row);
+  }
+}
+
+function openShop() {
+  renderShop();
+  shopPanel.classList.add('show');
+}
+
+btnShop.addEventListener('click', () => { sound.initAudio(); sound.playClick(); openShop(); });
+btnShopClose.addEventListener('click', () => { sound.playClick(); shopPanel.classList.remove('show'); });
+btnShopFromOver.addEventListener('click', () => {
+  sound.initAudio();
+  sound.playClick();
+  selectedPin = null;
+  updateSiteCardUI();
+  showGlobeScreen();
+  openShop();
+});
+
 function renderGlobeScreen() {
   globeCtx.clearRect(0, 0, globeCanvas.width, globeCanvas.height);
   drawSpaceBackground(globeCtx, globeCanvas.width, globeCanvas.height, state.timeSec);
@@ -200,7 +283,7 @@ function makeInitialState() {
     totalScrollPx: startDepthM * PX_PER_METER,
     score: 0,
     dex: new Set(),
-    health: MAX_HEALTH,
+    health: maxHealth(),
     invulnUntil: -1,
     shakeUntil: -1,
     shakeSeed: Math.random() * 1000,
@@ -459,10 +542,21 @@ function spawnAmbientBubbles(depthM) {
   state.bubbles.push(...col);
 }
 
+// 런에서 모은 점수를 진주 잔고에 합산 — 조난이든 클리어든 가져간다(실패해도 전진감)
+function bankRunPearls() {
+  const gained = state.score;
+  pearlBalance += gained;
+  savePearls(pearlBalance);
+  updatePearlUI();
+  const finalPearlsEl = document.getElementById('finalPearls');
+  if (finalPearlsEl) finalPearlsEl.textContent = `🦪 이번 런 진주 +${gained} (보유 ${pearlBalance})`;
+}
+
 function endGame() {
   state.over = true;
   state.running = false;
   sound.stopAmbience();
+  bankRunPearls();
   overlayTitleEl.textContent = '조난';
   btnRestart.textContent = '다시 하강';
   finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
@@ -477,6 +571,7 @@ function clearLevel() {
   state.running = false;
   sound.playLevelClearFanfare();
   sound.stopAmbience();
+  bankRunPearls();
   if (currentSite) {
     clearedSet.add(currentSite.id);
     saveClearedSet(clearedSet);
@@ -512,7 +607,7 @@ function damagePlayer() {
   if (state.timeSec < state.invulnUntil) return; // 무적 시간 중이면 무시
   sound.playHit();
   state.health -= 1;
-  state.invulnUntil = state.timeSec + INVULN_DURATION;
+  state.invulnUntil = state.timeSec + invulnDuration();
   state.shakeUntil = state.timeSec + SHAKE_DURATION;
   if (state.health <= 0) {
     state.health = 0;
@@ -521,7 +616,7 @@ function damagePlayer() {
 }
 
 function healPlayer() {
-  if (state.health < MAX_HEALTH) {
+  if (state.health < maxHealth()) {
     state.health += 1;
   } else {
     // 풀피 상태에서 회복 아이템을 먹으면 보너스 점수로 대체
@@ -561,7 +656,7 @@ function update(dtSecRaw) {
     reachFloor();
   }
 
-  updatePlayer(player, dtSec, state.timeSec);
+  updatePlayer(player, dtSec, state.timeSec, finSpeedMul());
 
   // ---- 스폰 타이머 (시간 기반, 프레임 기반 절대 금지) ----
   state.creatureSpawnTimer -= dtSec;
@@ -743,9 +838,20 @@ function update(dtSecRaw) {
   }
 
   // ---- 아이템 갱신 + 획득 ----
+  const magR = magnetRadius();
   for (let i = state.items.length - 1; i >= 0; i--) {
     const it = state.items[i];
     it.y -= scrollPx;
+    // 진주 자석: 흡인 반경 안의 수집 아이템이 다이버 쪽으로 빨려온다 (레벨 보물 제외)
+    if (magR > 0 && ITEM_TYPES[it.type].kind !== 'levelGoal' && !state.over && !state.cleared) {
+      const mdx = player.x - it.x, mdy = player.y - it.y;
+      const md = Math.hypot(mdx, mdy);
+      if (md < magR && md > 1) {
+        const pull = 90 + 260 * (1 - md / magR); // 가까울수록 강하게
+        it.x += (mdx / md) * pull * dtSec;
+        it.y += (mdy / md) * pull * dtSec;
+      }
+    }
     const r = it.radius * 0.85;
     const pr = PLAYER_RADIUS * 0.6;
     const dx = it.x - player.x;
@@ -826,9 +932,9 @@ function update(dtSecRaw) {
 
 function updateHud(depthM) {
   hudDepth.textContent = `${Math.max(0, Math.floor(depthM))} m`;
-  hudScore.textContent = `점수 ${state.score}`;
+  hudScore.textContent = `🦪 ${state.score}`;
   hudDex.textContent = `도감 ${state.dex.size}/${TOTAL_SPECIES}`;
-  hudHealth.textContent = HEART_FULL.repeat(state.health) + HEART_EMPTY.repeat(MAX_HEALTH - state.health);
+  hudHealth.textContent = HEART_FULL.repeat(state.health) + HEART_EMPTY.repeat(Math.max(0, maxHealth() - state.health));
   if (hudPhase) {
     if (state.targetDepthM == null) {
       hudPhase.style.display = 'none';
@@ -938,7 +1044,7 @@ function render() {
   // 마스크 위에 별도로 그려 서스펜스를 만든다 (비발광 생물/지형은 조명 안에서만 보임).
   const zone = zoneAt(depthM);
   if (zone.pitchBlack) {
-    drawHeadlampDarkness(ctx, player.x, player.y);
+    drawHeadlampDarkness(ctx, player.x, player.y, { rx: 100 * lampMul(), ry: 225 * lampMul() });
     for (const c of state.creatures) {
       const sp = speciesById(c.speciesId);
       if (!sp.glowing) continue;
@@ -1037,6 +1143,8 @@ btnGlobeFromOver.addEventListener('click', () => {
   updateSiteCardUI();
   showGlobeScreen();
 });
+
+updatePearlUI();
 
 const devSiteId = new URLSearchParams(window.location.search).get('site');
 const devSite = devSiteId ? DIVE_SITES.find(s => s.id === devSiteId) : null;

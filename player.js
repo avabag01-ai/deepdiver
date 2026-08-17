@@ -174,31 +174,33 @@ export function attachPlayerInput(player, canvasEl) {
 }
 
 // dtSec: 반드시 초 단위로 정규화된 델타타임
-export function updatePlayer(player, dtSec, timeSec) {
+// speedMul: 롱핀 업그레이드 배율(1 = 기본) — 가속/추종/최고속도에 공통 적용
+export function updatePlayer(player, dtSec, timeSec, speedMul = 1) {
   if (player.dragTargetX !== null) {
     const diffX = player.dragTargetX - player.x;
-    player.vx = diffX * DRAG_FOLLOW;
+    player.vx = diffX * DRAG_FOLLOW * speedMul;
     const diffY = player.dragTargetY - player.y;
-    player.vy = diffY * DRAG_FOLLOW;
+    player.vy = diffY * DRAG_FOLLOW * speedMul;
   } else {
     let accelX = 0;
-    if (player.keys.left) accelX -= MOVE_ACCEL;
-    if (player.keys.right) accelX += MOVE_ACCEL;
+    if (player.keys.left) accelX -= MOVE_ACCEL * speedMul;
+    if (player.keys.right) accelX += MOVE_ACCEL * speedMul;
     player.vx += accelX * dtSec;
     const dampX = Math.exp(-MOVE_DAMPING * dtSec);
     player.vx *= dampX;
 
     let accelY = 0;
-    if (player.keys.up) accelY -= MOVE_ACCEL;
-    if (player.keys.down) accelY += MOVE_ACCEL;
+    if (player.keys.up) accelY -= MOVE_ACCEL * speedMul;
+    if (player.keys.down) accelY += MOVE_ACCEL * speedMul;
     player.vy += accelY * dtSec;
     const dampY = Math.exp(-MOVE_DAMPING * dtSec);
     player.vy *= dampY;
   }
 
-  player.vx = clamp(player.vx, -MOVE_MAX_SPEED, MOVE_MAX_SPEED);
+  const vmax = MOVE_MAX_SPEED * speedMul;
+  player.vx = clamp(player.vx, -vmax, vmax);
   player.x += player.vx * dtSec;
-  player.vy = clamp(player.vy, -MOVE_MAX_SPEED, MOVE_MAX_SPEED);
+  player.vy = clamp(player.vy, -vmax, vmax);
   player.y += player.vy * dtSec;
 
   const margin = PLAYER_RADIUS + 4;
