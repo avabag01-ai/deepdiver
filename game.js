@@ -245,6 +245,17 @@ function isOffscreenY(y, r) {
   return state.scrollDir > 0 ? (y + r < -20) : (y - r > CANVAS_H + 20);
 }
 
+// 스폰 후보 좌표가 기존 생물들과 충분히 떨어져 있는지 — 겹쳐 스폰되면 두 스프라이트가
+// 포개져 "합성 괴물"처럼 보이는 비주얼 버그가 있었다.
+const SPAWN_MIN_DIST = 60;
+function farFromOtherCreatures(x, y) {
+  return state.creatures.every((o) => {
+    const ox = o.curX ?? o.baseX;
+    const oy = o.curY ?? o.y;
+    return (ox - x) * (ox - x) + (oy - y) * (oy - y) >= SPAWN_MIN_DIST * SPAWN_MIN_DIST;
+  });
+}
+
 function spawnCreature(depthM) {
   if (state.creatures.length >= MAX_ENTITIES_ON_SCREEN) return;
   const zoneId = zoneAt(depthM).id;
@@ -252,19 +263,29 @@ function spawnCreature(depthM) {
   if (!sp) return;
   const r = creatureVisualRadius(sp);
   const margin = r + 6;
-  let x = randRange(margin, CANVAS_W - margin);
+  const spawnY = spawnEdgeY(r);
   let crossDir = 0, crossSpeed = 0;
+  let x;
   // 유영성 어류/생물 일부는 제자리 sway 대신 화면을 대각선으로 가로지르며 지나가게 한다
   // (고정형/매복형 생물은 CROSSING_SPECIES에 없으므로 항상 기존처럼 제자리 유지)
   if (CROSSING_SPECIES.has(sp.id) && Math.random() < CROSS_CHANCE) {
     crossDir = Math.random() < 0.5 ? 1 : -1;
     crossSpeed = randRange(16, 38);
-    x = crossDir === 1 ? -r : CANVAS_W + r; // 화면 밖에서 시작해 가로질러 등장
+    x = crossDir === 1 ? -r : CANVAS_W + r; // 화면 밖에서 시작해 가로질러 등장 (x 고정)
+    if (!farFromOtherCreatures(x, spawnY)) return; // 겹치면 이번 스폰은 건너뜀
+  } else {
+    // 겹치지 않는 x가 나올 때까지 몇 번 재추첨, 전부 실패하면 스폰 스킵
+    let found = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const cand = randRange(margin, CANVAS_W - margin);
+      if (farFromOtherCreatures(cand, spawnY)) { x = cand; found = true; break; }
+    }
+    if (!found) return;
   }
   state.creatures.push({
     speciesId: sp.id,
     baseX: x,
-    y: spawnEdgeY(r),
+    y: spawnY,
     phase: Math.random() * Math.PI * 2,
     spawnT: Math.random() * 10,
     crossDir, crossSpeed,
