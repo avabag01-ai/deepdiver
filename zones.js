@@ -80,13 +80,20 @@ export function zoneBlendAt(depth) {
   return { zone: z, next, t };
 }
 
-// 배경 레이어 L0~L3 (원경 그라디언트 + 입자 느낌의 겹 레이어)를 그린다
-export function drawBackground(ctx, depth, timeSec) {
+// 배경 레이어 L0~L3 (원경 그라디언트 + 입자 느낌의 겹 레이어)를 그린다.
+// theme: 스팟 테마(globe.js DIVE_SITES.theme) — tint/tintK가 있으면 zone 물 색을
+// 그 색조 쪽으로 lerp해 스팟 고유의 물 색감을 만든다. null이면 기존 zone 룩 그대로.
+export function drawBackground(ctx, depth, timeSec, theme = null) {
   const { zone, next, t } = zoneBlendAt(depth);
 
-  const sky = lerpColor(zone.sky, next.sky, t);
-  const mid = lerpColor(zone.mid, next.mid, t);
-  const deep = lerpColor(zone.deep, next.deep, t);
+  let sky = lerpColor(zone.sky, next.sky, t);
+  let mid = lerpColor(zone.mid, next.mid, t);
+  let deep = lerpColor(zone.deep, next.deep, t);
+  if (theme && theme.tint && theme.tintK) {
+    sky = lerpColor(sky, theme.tint, theme.tintK);
+    mid = lerpColor(mid, theme.tint, theme.tintK);
+    deep = lerpColor(deep, theme.tint, theme.tintK * 0.8);
+  }
 
   // L0: 수직 그라디언트 베이스
   const g = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
@@ -102,8 +109,8 @@ export function drawBackground(ctx, depth, timeSec) {
     drawLightRays(ctx, rayStrength, zone.rayColor, timeSec, depth);
   }
 
-  // L2: 부유 입자 (미세 플랑크톤 느낌) — 얇은 점들
-  drawParticles(ctx, depth, timeSec);
+  // L2: 부유 입자 (미세 플랑크톤 느낌) — 얇은 점들. 조류 테마면 한쪽으로 드리프트.
+  drawParticles(ctx, depth, timeSec, theme?.driftX || 0);
 
   // L3: 뎁스베일은 생물 위에 별도로 그림 (drawDepthVeil, game.js에서 생물 렌더 후 호출)
 }
@@ -162,7 +169,7 @@ function drawLightRays(ctx, strength, color, timeSec, depth = 0) {
 
 const PARTICLE_COUNT = 26;
 let particleSeeds = null;
-function drawParticles(ctx, depth, timeSec) {
+function drawParticles(ctx, depth, timeSec, driftX = 0) {
   if (!particleSeeds) {
     particleSeeds = Array.from({ length: PARTICLE_COUNT }, () => ({
       x: Math.random() * CANVAS_W,
@@ -179,7 +186,8 @@ function drawParticles(ctx, depth, timeSec) {
     // 지형/생물 스크롤과 시각적으로 결이 맞게 한다.
     const raw = p.y - timeSec * p.speed - depth * 0.15;
     const y = ((raw % CANVAS_H) + CANVAS_H) % CANVAS_H;
-    const x = p.x + Math.sin(timeSec * 0.6 + p.phase) * 6;
+    const rawX = p.x + Math.sin(timeSec * 0.6 + p.phase) * 6 + timeSec * driftX;
+    const x = ((rawX % CANVAS_W) + CANVAS_W) % CANVAS_W;
     ctx.beginPath();
     ctx.arc(x, y, p.r, 0, Math.PI * 2);
     ctx.fill();
@@ -225,7 +233,7 @@ export function drawHeadlampDarkness(ctx, playerX, playerY, opts = {}) {
 // (20~40개) 오프스크린 캐싱 없이 매 프레임 직접 그려도 비용이 낮다.
 const SNOW_COUNT = 32;
 let snowSeeds = null;
-export function drawMarineSnow(ctx, depth, timeSec) {
+export function drawMarineSnow(ctx, depth, timeSec, driftX = 0) {
   if (!snowSeeds) {
     snowSeeds = Array.from({ length: SNOW_COUNT }, () => ({
       x: Math.random() * CANVAS_W,
@@ -241,7 +249,8 @@ export function drawMarineSnow(ctx, depth, timeSec) {
     // 다이버 하강 방향과 반대(상대적으로 위)로 아주 느리게 흘러 근경 부유물 느낌
     const raw = p.y - timeSec * p.speed - depth * 0.1;
     const y = ((raw % CANVAS_H) + CANVAS_H) % CANVAS_H;
-    const x = p.x + Math.sin(timeSec * 0.35 + p.drift) * 9;
+    const rawX = p.x + Math.sin(timeSec * 0.35 + p.drift) * 9 + timeSec * driftX;
+    const x = ((rawX % CANVAS_W) + CANVAS_W) % CANVAS_W;
     ctx.fillStyle = `rgba(224,238,248,${p.alpha})`;
     ctx.beginPath();
     ctx.arc(x, y, p.r, 0, Math.PI * 2);
@@ -283,8 +292,8 @@ export function drawVignette(ctx, strength = 0.5) {
 }
 
 // 세 오버레이를 한 번에 — game.js 렌더 루프 맨 마지막에 한 번만 호출하면 됨.
-export function drawPostProcess(ctx, depth, timeSec) {
-  drawMarineSnow(ctx, depth, timeSec);
+export function drawPostProcess(ctx, depth, timeSec, driftX = 0) {
+  drawMarineSnow(ctx, depth, timeSec, driftX);
   drawColorGrade(ctx, depth);
   drawVignette(ctx);
 }

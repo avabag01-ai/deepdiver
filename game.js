@@ -93,6 +93,7 @@ const globeState = createGlobeState();
 let clearedSet = loadClearedSet();
 let selectedPin = null;   // 카드에 표시 중인 핀 (projectSites 결과 원소)
 let currentSite = null;   // 지금 다이빙 중인 스팟 (devAutoStart로 진입하면 null)
+let currentTheme = null;  // currentSite.theme — 스팟 고유 분위기 레이어 (?depth= 개발 모드는 null)
 let screen = 'globe';     // 'globe' | 'diving'
 let lastProjectedPins = [];
 
@@ -277,8 +278,21 @@ function farFromOtherCreatures(x, y) {
 function spawnCreature(depthM) {
   if (state.creatures.length >= MAX_ENTITIES_ON_SCREEN) return;
   const zoneId = zoneAt(depthM).id;
-  const sp = pickSpeciesForZone(zoneId, state.speciesLastSpawn, state.lastSpeciesId, state.timeSec);
+  let sp = pickSpeciesForZone(zoneId, state.speciesLastSpawn, state.lastSpeciesId, state.timeSec);
   if (!sp) return;
+  // 스팟 테마의 종 가중치: 일정 확률로 바이어스 종 중 하나로 교체 (현재 구역 종만)
+  if (currentTheme?.spawnBias && Math.random() < 0.45) {
+    const cands = Object.entries(currentTheme.spawnBias)
+      .filter(([id]) => speciesById(id)?.zone === zoneId);
+    if (cands.length) {
+      const total = cands.reduce((s, [, w]) => s + w, 0);
+      let roll = Math.random() * total;
+      for (const [id, w] of cands) {
+        roll -= w;
+        if (roll <= 0) { sp = speciesById(id); break; }
+      }
+    }
+  }
   const r = creatureVisualRadius(sp);
   const margin = r + 6;
   const spawnY = spawnEdgeY(r);
@@ -351,7 +365,7 @@ function spawnPotion() {
 
 function spawnTerrainFg(depthM) {
   const zoneId = zoneAt(depthM).id;
-  const chunk = createTerrainChunk(zoneId, state.terrainFgSide, CANVAS_H);
+  const chunk = createTerrainChunk(zoneId, state.terrainFgSide, CANVAS_H, currentTheme?.wall || null);
   state.terrainFg.push(chunk);
   state.terrainFgSide = state.terrainFgSide === 'left' ? 'right' : 'left';
   // 다음 벽(반대쪽)은 이번 벽의 "길이"만큼 스크롤이 지나간 뒤에야 스폰한다.
@@ -363,7 +377,7 @@ function spawnTerrainFg(depthM) {
 
 function spawnTerrainBg(depthM) {
   const zoneId = zoneAt(depthM).id;
-  const chunk = createBgChunk(zoneId, state.terrainBgSide, CANVAS_H);
+  const chunk = createBgChunk(zoneId, state.terrainBgSide, CANVAS_H, currentTheme?.wall || null);
   state.terrainBg.push(chunk);
   state.terrainBgSide = Math.random() < 0.5 ? 'left' : 'right';
   state.terrainBgGap = randRange(CANVAS_H * 0.8, CANVAS_H * 1.5);
@@ -371,7 +385,7 @@ function spawnTerrainBg(depthM) {
 
 function spawnTerrainDistant(depthM) {
   const zoneId = zoneAt(depthM).id;
-  const chunk = createDistantChunk(zoneId, state.terrainDistantSide, CANVAS_H);
+  const chunk = createDistantChunk(zoneId, state.terrainDistantSide, CANVAS_H, currentTheme?.wall || null);
   state.terrainDistant.push(chunk);
   state.terrainDistantSide = Math.random() < 0.5 ? 'left' : 'right';
   state.terrainDistantGap = randRange(CANVAS_H * 1.2, CANVAS_H * 2.2);
@@ -782,6 +796,9 @@ function update(dtSecRaw) {
     if (state.bursts[i].done) state.bursts.splice(i, 1);
   }
   updateBubbles(state.bubbles, dtSec);
+  if (currentTheme?.driftX) {
+    for (const b of state.bubbles) b.x += currentTheme.driftX * dtSec; // 조류 드리프트
+  }
 
   updateHud(depthM);
 }
@@ -820,7 +837,7 @@ function render() {
     ctx.translate(sx, sy);
   }
 
-  drawBackground(ctx, depthM, state.timeSec);
+  drawBackground(ctx, depthM, state.timeSec, currentTheme);
 
   // 극원경: 가장 뒤쪽 레이어 — 흐릿한 큰 실루엣 + 가끔 스쳐가는 거대 생물 그림자
   for (const ch of state.terrainDistant) drawTerrainChunk(ctx, ch, state.timeSec);
@@ -921,7 +938,7 @@ function render() {
 
   // 화면 전체 후처리 (비네팅+색조 보정+마린 스노) — 흔들림 오프셋과 무관하게 항상
   // 화면 전체를 고정 좌표로 덮어야 하므로 위 ctx.restore() 이후, 맨 마지막에 그린다.
-  drawPostProcess(ctx, depthM, state.timeSec);
+  drawPostProcess(ctx, depthM, state.timeSec, currentTheme?.driftX || 0);
 }
 
 let lastTs = null;
@@ -949,6 +966,7 @@ function loop(ts) {
 // site: DIVE_SITES 원소 또는 null(지구본 없이 진입하는 개발용 ?depth= 모드)
 function startDive(site) {
   currentSite = site;
+  currentTheme = site?.theme ?? null;
   state = makeInitialState();
   state.running = true;
   state.targetDepthM = site ? site.targetDepth : null;
@@ -983,8 +1001,13 @@ btnGlobeFromOver.addEventListener('click', () => {
   showGlobeScreen();
 });
 
-if (state.devAutoStart) {
-  // 개발용 ?depth= 파라미터가 있으면 지구본을 건너뛰고 바로 시작 (구역 검증 편의)
+const devSiteId = new URLSearchParams(window.location.search).get('site');
+const devSite = devSiteId ? DIVE_SITES.find(s => s.id === devSiteId) : null;
+if (devSite) {
+  // 개발용 ?site=<id>: 지구본 건너뛰고 해당 스팟 테마로 바로 진입 (테마 검증 편의)
+  startDive(devSite);
+} else if (state.devAutoStart) {
+  // 개발용 ?depth= 파라미터가 있으면 지구본을 건너뛰고 바로 시작 (테마 없이 기존 zone 룩)
   startDive(null);
 } else {
   showGlobeScreen();

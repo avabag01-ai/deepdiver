@@ -137,10 +137,38 @@ const CONTINENTS = [
 // ---------------------------------------------------------------------------
 // 다이빙 스팟 8곳 — 실제 위/경도 기반, 난이도(목표 수심) 순.
 // zone은 기존 zones.js 4구역과 매핑(레벨 진행 시 배경/생물 스폰에 사용 예정).
+// 각 스팟의 theme: 기존 zone 룩 위에 얹는 스팟 고유 분위기 레이어.
+// { tint/tintK: 물 색조(zone 그라디언트 색과 lerp), wall: 벽 팔레트/장식 오버라이드,
+//   signature: 특수 연출 키('current'|'shipwreck'|'volcano'|'void'),
+//   driftX: 해류 드리프트(px/s), lampColor: 헤드램프 글로우 색,
+//   spawnBias: 종별 스폰 가중 배율, terrainGapMul/spawnSlowMul: 밀도 계수 }
+// ?depth= 개발 모드는 theme 없이 기존 zone 룩 그대로 동작한다.
 export const DIVE_SITES = [
-  { id: 'gbr', name: '그레이트배리어리프', place: '호주', lat: -18.28, lon: 147.70, targetDepth: 200, zone: 'shallow' },
-  { id: 'bluehole', name: '블루홀', place: '벨리즈', lat: 17.32, lon: -87.53, targetDepth: 400, zone: 'twilight' },
-  { id: 'palau', name: '저먼 채널 · 블루코너', place: '팔라우', lat: 7.13, lon: 134.22, targetDepth: 700, zone: 'twilight' },
+  {
+    id: 'gbr', name: '그레이트배리어리프', place: '호주', lat: -18.28, lon: 147.70, targetDepth: 200, zone: 'shallow',
+    theme: { // 산호의 낙원 — 현행 표층 룩 유지 + 산호 장식 최대 밀도, 밝은 청록 기운
+      tint: '#7fe8e0', tintK: 0.12,
+      wall: { decorDensity: 1.9 },
+      spawnBias: { clownfish: 3, seaturtle: 2.5, bluetang: 2 },
+    },
+  },
+  {
+    id: 'bluehole', name: '블루홀', place: '벨리즈', lat: 17.32, lon: -87.53, targetDepth: 400, zone: 'twilight',
+    theme: { // 원형 석회암 싱크홀 — 창백한 석회암 벽 + 단층 줄무늬 + 코발트 블루 물
+      tint: '#0d2f9e', tintK: 0.42,
+      wall: { fg: '#cfc4a4', bg: '#7d7864', accent: '#b0a480', stripes: true, decorDensity: 0.6 },
+      spawnBias: { reefshark: 4 },
+    },
+  },
+  {
+    id: 'palau', name: '저먼 채널 · 블루코너', place: '팔라우', lat: 7.13, lon: 134.22, targetDepth: 700, zone: 'twilight',
+    theme: { // 해류의 통로 — 청록-보라 색조 + 부유물/기포가 한쪽으로 흐르는 조류 드리프트
+      tint: '#4a3f9e', tintK: 0.28,
+      wall: { decorDensity: 1.4 },
+      signature: 'current', driftX: 26,
+      spawnBias: { reefshark: 2.5, flyingfish: 2 },
+    },
+  },
   { id: 'redsea', name: '홍해', place: '이집트', lat: 27.73, lon: 34.25, targetDepth: 1000, zone: 'deepsea' },
   { id: 'philtrench', name: '필리핀 해구', place: '필리핀', lat: 10.0, lon: 126.6, targetDepth: 1600, zone: 'deepsea' },
   { id: 'tongatrench', name: '통가 해구', place: '통가', lat: -23.0, lon: -174.75, targetDepth: 3000, zone: 'deepsea' },

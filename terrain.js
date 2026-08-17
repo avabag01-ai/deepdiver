@@ -52,7 +52,8 @@ const WALL_PAD = 90;
 // 지형 조각 하나를 생성. side: 'left' | 'right'
 // spawnY는 조각의 "위쪽(top)" 기준. 조각은 화면 아래에서 나타나 위로 흘러가므로
 // 항상 화면 바닥 부근에서 스폰되고, 세로로 길게(화면의 1.5~3배) 뻗어 벽처럼 보인다.
-export function createTerrainChunk(zoneId, side, spawnY) {
+// themeWall(옵션): 스팟 테마의 벽 오버라이드 { fg,bg,accent,stripes,decorDensity,decor }
+export function createTerrainChunk(zoneId, side, spawnY, themeWall = null) {
   // 명목폭은 기저 두께 상한과 일치 — 실제 실루엣 두께는 wallThickness()가 y마다 결정
   const width = WALL_BASE_MAX_W;
   const height = FG_HEIGHT_MIN + Math.random() * (FG_HEIGHT_MAX - FG_HEIGHT_MIN);
@@ -65,12 +66,13 @@ export function createTerrainChunk(zoneId, side, spawnY) {
     height,
     seed: Math.random() * 1000,
     layer: 'fg',
+    themeWall,
   };
   chunk.tex = bakeTexture(chunk);
   return chunk;
 }
 
-export function createBgChunk(zoneId, side, spawnY) {
+export function createBgChunk(zoneId, side, spawnY, themeWall = null) {
   const width = CANVAS_W * (0.3 + Math.random() * 0.25);
   const height = BG_HEIGHT_MIN + Math.random() * (BG_HEIGHT_MAX - BG_HEIGHT_MIN);
   const chunk = {
@@ -82,6 +84,7 @@ export function createBgChunk(zoneId, side, spawnY) {
     height,
     seed: Math.random() * 1000,
     layer: 'bg',
+    themeWall,
   };
   chunk.tex = bakeTexture(chunk);
   return chunk;
@@ -89,7 +92,7 @@ export function createBgChunk(zoneId, side, spawnY) {
 
 // 극원경(distant) 조각 — bg보다 더 흐릿하고 어둡게, 스크롤도 더 느리게(game.js에서 0.3배 적용).
 // 목업처럼 "저 뒤에 뭔가 있다"는 깊이감만 주는 용도라 디테일은 거의 없이 실루엣만.
-export function createDistantChunk(zoneId, side, spawnY) {
+export function createDistantChunk(zoneId, side, spawnY, themeWall = null) {
   const width = CANVAS_W * (0.4 + Math.random() * 0.3);
   const height = BG_HEIGHT_MIN + Math.random() * (BG_HEIGHT_MAX - BG_HEIGHT_MIN);
   const chunk = {
@@ -101,6 +104,7 @@ export function createDistantChunk(zoneId, side, spawnY) {
     height,
     seed: Math.random() * 1000,
     layer: 'distant',
+    themeWall,
   };
   chunk.tex = bakeTexture(chunk);
   return chunk;
@@ -218,6 +222,25 @@ function buildWallPath(ctx, chunk, sampleStep, jitterAmp = 0) {
     ctx.lineTo(cx, cy);
   }
   ctx.closePath();
+}
+
+// 석회암 단층 줄무늬 — 벽 실루엣에 클리핑해서 수평 지층 밴드를 겹쳐 그린다.
+// 블루홀 같은 침수 석회암 싱크홀 테마용 (themeWall.stripes=true일 때만).
+function drawStrata(tctx, chunk, sampleStep, jitter, height, seed) {
+  tctx.save();
+  buildWallPath(tctx, { ...chunk, x: 0, y: 0 }, sampleStep, jitter);
+  tctx.clip();
+  let y = 24 + hash2(seed, 601) * 40;
+  let i = 0;
+  while (y < height) {
+    const bandH = 5 + hash2(seed + i, 603) * 10;
+    const dark = hash2(seed + i, 605) > 0.45;
+    tctx.fillStyle = dark ? 'rgba(60,50,30,0.14)' : 'rgba(255,250,235,0.1)';
+    tctx.fillRect(-WALL_PAD, y, chunk.width + WALL_PAD * 2, bandH);
+    y += bandH + 26 + hash2(seed + i, 607) * 46;
+    i++;
+  }
+  tctx.restore();
 }
 
 // 불규칙 다각형 블롭 하나를 그린다 (원 대신 각 꼭짓점을 해시로 흔들어 자연스러운 얼룩 모양)
@@ -348,7 +371,7 @@ function drawMiniCoral(tctx, cx, cy, faceDir, seed, palette, scale = 1) {
 function bakeRock(chunk, zoneId) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
-  const style = TERRAIN_STYLE[zoneId];
+  const style = { ...TERRAIN_STYLE[zoneId], ...(chunk.themeWall || {}) };
   const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
@@ -389,6 +412,9 @@ function bakeRock(chunk, zoneId) {
 
   // 안쪽 가장자리 그림자
   shade(tctx, () => buildWallPath(tctx, local, sampleStep, jitter), 0.2);
+
+  // 석회암 단층 줄무늬 (테마 지정 시)
+  if (chunk.themeWall?.stripes) drawStrata(tctx, local, sampleStep, jitter, height, seed);
 
   // 다중 톤 명암 얼룩 (표면 거칠기 — 결정적 노이즈로 흩뿌린 밝은/어두운 다각형 패치)
   const patchCount = Math.max(10, Math.round(height / 24));
@@ -446,9 +472,9 @@ function bakeRock(chunk, zoneId) {
     tctx.stroke();
   }
 
-  // 생태계 장식: 말미잘 + 불가사리 + 미니 산호 군락 (구역별 색감)
-  const palette = DECOR_PALETTE[zoneId];
-  const decorCount = Math.max(4, Math.round(height / 150));
+  // 생태계 장식: 말미잘 + 불가사리 + 미니 산호 군락 (구역별 색감, 테마 밀도 계수 반영)
+  const palette = chunk.themeWall?.decor || DECOR_PALETTE[zoneId];
+  const decorCount = Math.max(1, Math.round((height / 150) * (chunk.themeWall?.decorDensity ?? 1)));
   for (let i = 0; i < decorCount; i++) {
     const dy = 40 + hash2(seed + 141, i) * (height - 80);
     const dx = edgeAt(dy) - dir * (2 + hash2(seed + 143, i) * 5);
@@ -473,7 +499,7 @@ function bakeRock(chunk, zoneId) {
 function bakeCoral(chunk) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
-  const style = TERRAIN_STYLE.shallow;
+  const style = { ...TERRAIN_STYLE.shallow, ...(chunk.themeWall || {}) };
   const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
@@ -501,8 +527,12 @@ function bakeCoral(chunk) {
 
   shade(tctx, () => buildWallPath(tctx, local, sampleStep, jitter), 0.14);
 
-  // 가지 형태 돌출 (유기적 산호 가지)
-  const branchCount = Math.max(3, Math.round(height / 100));
+  // 석회암 단층 줄무늬 (테마 지정 시)
+  if (chunk.themeWall?.stripes) drawStrata(tctx, local, sampleStep, jitter, height, seed);
+
+  // 가지 형태 돌출 (유기적 산호 가지) — 테마 밀도 계수 반영
+  const densityMul = chunk.themeWall?.decorDensity ?? 1;
+  const branchCount = Math.max(3, Math.round((height / 100) * densityMul));
   for (let i = 0; i < branchCount; i++) {
     const by = 26 + hash2(seed + 81, i) * (height - 52);
     const bx = edgeAt(by);
@@ -530,7 +560,7 @@ function bakeCoral(chunk) {
   }
 
   // 폴립 점묘 텍스처 (촘촘한 점 무리 — 유기적 질감의 핵심)
-  const clusters = Math.max(5, Math.round(height / 55));
+  const clusters = Math.max(5, Math.round((height / 55) * densityMul));
   for (let c = 0; c < clusters; c++) {
     const cy = hash2(seed + 91, c) * height;
     const cx = edgeAt(cy) - dir * (8 + hash2(seed + 93, c) * thickAt(cy) * 0.55);
@@ -547,8 +577,8 @@ function bakeCoral(chunk) {
   tctx.globalAlpha = 1;
 
   // 생태계 장식: 말미잘 + 불가사리 (산호는 이미 위에서 충분히 다뤘으므로 제외)
-  const palette = DECOR_PALETTE.shallow;
-  const decorCount = Math.max(3, Math.round(height / 160));
+  const palette = chunk.themeWall?.decor || DECOR_PALETTE.shallow;
+  const decorCount = Math.max(1, Math.round((height / 160) * (chunk.themeWall?.decorDensity ?? 1)));
   for (let i = 0; i < decorCount; i++) {
     const dy = 36 + hash2(seed + 161, i) * (height - 72);
     const dx = edgeAt(dy) - dir * (3 + hash2(seed + 163, i) * 6);
@@ -569,7 +599,7 @@ function bakeCoral(chunk) {
 function bakeVentBody(chunk) {
   const { width, height, seed, side, layer } = chunk;
   const isFg = layer === 'fg';
-  const style = TERRAIN_STYLE.vent;
+  const style = { ...TERRAIN_STYLE.vent, ...(chunk.themeWall || {}) };
   const cnv = makeCanvas(width + WALL_PAD * 2, height);
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
@@ -628,8 +658,8 @@ function bakeVentBody(chunk) {
   }
 
   // 생태계 장식: 창백하거나 은은하게 발광하는 말미잘/불가사리 (열수구 특유의 색소 없는 생물상)
-  const palette = DECOR_PALETTE.vent;
-  const decorCount = Math.max(2, Math.round(height / 210));
+  const palette = chunk.themeWall?.decor || DECOR_PALETTE.vent;
+  const decorCount = Math.max(1, Math.round((height / 210) * (chunk.themeWall?.decorDensity ?? 1)));
   for (let i = 0; i < decorCount; i++) {
     const dy = 50 + hash2(seed + 181, i) * (height - 100);
     const dx = edgeAt(dy) - dir * (2 + hash2(seed + 183, i) * 6);
