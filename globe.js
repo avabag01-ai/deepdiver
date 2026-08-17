@@ -206,8 +206,22 @@ export const DIVE_SITES = [
       signature: 'volcano',
     },
   },
-  { id: 'prtrench', name: '푸에르토리코 해구', place: '대서양', lat: 19.8, lon: -66.75, targetDepth: 5000, zone: 'vent' },
-  { id: 'mariana', name: '마리아나 해구 · 챌린저 딥', place: '태평양', lat: 11.35, lon: 142.2, targetDepth: 10935, zone: 'vent' },
+  {
+    id: 'prtrench', name: '푸에르토리코 해구', place: '대서양', lat: 19.8, lon: -66.75, targetDepth: 5000, zone: 'vent',
+    theme: { // 대서양의 차가움 — 차가운 청록빛 암흑, 열수구 글로우도 청록으로
+      tint: '#04222a', tintK: 0.5,
+      wall: { fg: '#2a3438', bg: '#141c20', accent: '#4ad8d0' },
+    },
+  },
+  {
+    id: 'mariana', name: '마리아나 해구 · 챌린저 딥', place: '태평양', lat: 11.35, lon: 142.2, targetDepth: 10935, zone: 'vent',
+    theme: { // 최심해 무(無)의 공간 — 가장 완전한 암흑, 지형/생물이 드문 고독한 최종 레벨
+      tint: '#02030a', tintK: 0.6,
+      signature: 'void',
+      terrainGapMul: 2.4,  // 벽 간격 2.4배 — 허허벌판
+      spawnSlowMul: 1.9,   // 생물 스폰 주기 1.9배 — 발광 생물조차 희귀
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

@@ -374,7 +374,7 @@ function spawnTerrainFg(depthM) {
   // 벽 높이가 화면의 1.5~3배로 길기 때문에, 예전처럼 화면 높이 기준 고정 간격을
   // 쓰면 이전 벽이 채 사라지기도 전에 반대쪽 벽이 겹쳐 나타나 "양쪽이 동시에
   // 좁게" 보이는 문제가 있었다 — 한 번에 한쪽 벽만 보이도록 간격을 벽 길이에 맞춘다.
-  state.terrainFgGap = chunk.height + randRange(70, 200);
+  state.terrainFgGap = (chunk.height + randRange(70, 200)) * (currentTheme?.terrainGapMul || 1);
 }
 
 function spawnTerrainBg(depthM) {
@@ -382,7 +382,7 @@ function spawnTerrainBg(depthM) {
   const chunk = createBgChunk(zoneId, state.terrainBgSide, CANVAS_H, currentTheme?.wall || null);
   state.terrainBg.push(chunk);
   state.terrainBgSide = Math.random() < 0.5 ? 'left' : 'right';
-  state.terrainBgGap = randRange(CANVAS_H * 0.8, CANVAS_H * 1.5);
+  state.terrainBgGap = randRange(CANVAS_H * 0.8, CANVAS_H * 1.5) * (currentTheme?.terrainGapMul || 1);
 }
 
 function spawnTerrainDistant(depthM) {
@@ -390,7 +390,7 @@ function spawnTerrainDistant(depthM) {
   const chunk = createDistantChunk(zoneId, state.terrainDistantSide, CANVAS_H, currentTheme?.wall || null);
   state.terrainDistant.push(chunk);
   state.terrainDistantSide = Math.random() < 0.5 ? 'left' : 'right';
-  state.terrainDistantGap = randRange(CANVAS_H * 1.2, CANVAS_H * 2.2);
+  state.terrainDistantGap = randRange(CANVAS_H * 1.2, CANVAS_H * 2.2) * (currentTheme?.terrainGapMul || 1);
 }
 
 // 목업 참조: 헤드램프 뒤쪽 원경에 흐릿하게 스쳐가는 거대 해양생물 실루엣 (충돌 없음)
@@ -567,7 +567,8 @@ function update(dtSecRaw) {
   state.creatureSpawnTimer -= dtSec;
   if (state.creatureSpawnTimer <= 0) {
     spawnCreature(depthM);
-    state.creatureSpawnTimer = randRange(0.65, 1.4);
+    // 무(無)의 공간 테마(마리아나)는 생물 스폰 주기가 길어져 고독한 밀도가 된다
+    state.creatureSpawnTimer = randRange(0.65, 1.4) * (currentTheme?.spawnSlowMul || 1);
   }
   state.itemSpawnTimer -= dtSec;
   if (state.itemSpawnTimer <= 0) {
