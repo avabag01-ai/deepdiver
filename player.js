@@ -14,33 +14,55 @@ function outline(ctx, w) {
 
 // 오리발(핀) 한 짝을 그리는 헬퍼 — 좌우 다리를 각각 반대 위상으로 호출해
 // 실제 수영 킥처럼 한쪽이 위로 갈 때 다른 쪽은 아래로 가도록 만든다.
+// 실제 스쿠버 핀처럼: 발 포켓에서 발 길이의 2~2.5배로 길게 뻗는 납작한 검정
+// 블레이드 + 세로 골(리브) 라인 + 광택 하이라이트. 킥 위상에 따라 블레이드
+// 끝(tip)이 물 저항으로 휘는 듯 추가로 꺾인다.
 function drawFinBlade(ctx, offsetX, kick, scale) {
   ctx.save();
   ctx.translate(offsetX, 0);
   ctx.scale(scale, scale);
+  const tipBend = kick * 1.5; // 끝부분은 킥에 뒤처져 더 크게 휘어짐 (물 저항 연출)
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part / scale;
   ctx.fillStyle = FIN_COLOR;
+  // 발 포켓 (발목~발등을 감싸는 짧은 부분 — 스트랩은 drawPlayer 쪽에서 이 위를 지나감)
   ctx.beginPath();
-  ctx.moveTo(-4, 14);
-  ctx.lineTo(4, 14);
-  ctx.quadraticCurveTo(5.2 + kick * 0.3, 19, 3.6 + kick, 24);
-  ctx.quadraticCurveTo(6.6 + kick, 27, 4.4 + kick, 31);
-  ctx.quadraticCurveTo(0 + kick * 0.7, 28, -1.4 + kick * 0.6, 24);
-  ctx.quadraticCurveTo(-3.2, 19, -4, 14);
+  ctx.moveTo(-3.6, 13);
+  ctx.lineTo(3.6, 13);
+  ctx.quadraticCurveTo(4.6, 15.5, 4.2, 17.5);
+  ctx.lineTo(-4.2, 17.5);
+  ctx.quadraticCurveTo(-4.6, 15.5, -3.6, 13);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  shade(ctx, () => {
-    ctx.beginPath();
-    ctx.moveTo(0, 16.5);
-    ctx.quadraticCurveTo(3.6 + kick * 0.5, 21, 2.2 + kick, 28);
-    ctx.lineTo(-0.7 + kick * 0.6, 23.5);
-    ctx.quadraticCurveTo(-1.4, 19, 0, 16.5);
-  }, 0.24);
-  // 핀 골(리브) 라인 디테일
-  ctx.strokeStyle = rgba(INK, 0.4); ctx.lineWidth = STROKE.detail / scale;
+  // 롱 블레이드 (납작하고 길게, 끝은 둥글게 마감)
   ctx.beginPath();
-  ctx.moveTo(0, 17.5); ctx.quadraticCurveTo(1.4 + kick * 0.5, 23, 0.7 + kick, 28);
-  ctx.stroke();
+  ctx.moveTo(-4.2, 17.5);
+  ctx.lineTo(4.2, 17.5);
+  ctx.quadraticCurveTo(5.4 + kick * 0.4, 24, 4.6 + kick * 0.9, 30);
+  ctx.quadraticCurveTo(4.2 + tipBend, 35.5, 2.4 + tipBend, 38.5);
+  ctx.quadraticCurveTo(tipBend * 0.9, 39.6, -2 + tipBend, 38.3);
+  ctx.quadraticCurveTo(-3.6 + kick * 0.7, 33, -3.9 + kick * 0.4, 27);
+  ctx.quadraticCurveTo(-4.4, 21.5, -4.2, 17.5);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // 광택 하이라이트 (오른쪽 면을 따라 흐르는 은은한 윤기)
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.beginPath();
+  ctx.moveTo(2.2, 19);
+  ctx.quadraticCurveTo(3.6 + kick * 0.5, 26, 2.6 + tipBend * 0.8, 35);
+  ctx.lineTo(1 + tipBend * 0.8, 35.6);
+  ctx.quadraticCurveTo(1.6 + kick * 0.4, 26, 0.8, 19);
+  ctx.closePath();
+  ctx.fill();
+  // 세로 골(리브) 라인 3개 — 블레이드 곡률을 따라감
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = (STROKE.detail / scale) * 0.9;
+  ctx.lineCap = 'round';
+  for (const rx of [-2.1, 0, 2.1]) {
+    ctx.beginPath();
+    ctx.moveTo(rx, 19);
+    ctx.quadraticCurveTo(rx + kick * 0.5, 27, rx * 0.7 + tipBend * 0.85, 36.5);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -176,8 +198,7 @@ const SUIT_BELT = '#1B3A4B';      // 벨트·지퍼 (짙은 남색)
 const TANK_COLOR = '#CFDBE2';     // 산소통 몸체 (은회색)
 const TANK_SHADE = '#9FB2BC';
 const VALVE_COLOR = '#E14B3F';    // 산소통 밸브 (빨강)
-const FIN_COLOR = '#FFD34D';      // 오리발 (밝은 노랑)
-const FIN_SHADE = '#E0AA2A';
+const FIN_COLOR = '#23262B';      // 오리발 — 실제 스쿠버 핀 같은 짙은 차콜/검정
 const GLOVE_COLOR = '#1B3A4B';
 const SKIN_COLOR = '#FBCB98';
 const MASK_RIM_OUTER = '#16233B';
