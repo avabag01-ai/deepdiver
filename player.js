@@ -12,66 +12,84 @@ function outline(ctx, w) {
   ctx.lineCap = 'round';
 }
 
-// 오리발(핀) 한 짝을 그리는 헬퍼 — 좌우 다리를 각각 반대 위상으로 호출해
-// 실제 수영 킥처럼 한쪽이 위로 갈 때 다른 쪽은 아래로 가도록 만든다.
-// 실제 스쿠버 핀처럼: 발 포켓에서 발 길이의 2~2.5배로 길게 뻗는 납작한 검정
-// 블레이드 + 세로 골(리브) 라인 + 광택 하이라이트. 킥 위상에 따라 블레이드
-// 끝(tip)이 물 저항으로 휘는 듯 추가로 꺾인다.
-function drawFinBlade(ctx, offsetX, kick, scale) {
-  ctx.save();
-  ctx.translate(offsetX, 0);
-  ctx.scale(scale, scale);
-  const tipBend = kick * 1.9; // 끝부분은 킥에 뒤처져 더 크게 휘어짐 (물 저항 연출)
-  // 게임 배율에서도 "물갈퀴"로 읽히도록 실물 비율보다 과장: 길고(발 길이의 ~3배)
-  // 발목보다 확실히 넓게 벌어지는 삼각형 실루엣 + 실루엣급 굵은 외곽선.
+// 오리발(핀) 한 짝 — 현재 좌표계 원점(발목 상단)에서 아래로 그린다.
+// 게임 배율에서도 "물갈퀴"로 읽히도록 실물 비율보다 과장: 발목보다 확실히 넓게
+// 벌어지는 검정 삼각 블레이드 + 실루엣급 외곽선 + 밝은 스트랩 밴드 + 대비 강한 리브.
+function drawFinBladeAt(ctx, kick, scale) {
+  const tipBend = kick * 1.1; // 끝부분은 킥에 뒤처져 물 저항으로 더 휘어짐
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette / scale;
   ctx.fillStyle = FIN_COLOR;
-  // 발 포켓 (발목~발등)
+  // 발 포켓 (0~5)
   ctx.beginPath();
-  ctx.moveTo(-3.6, 12.5);
-  ctx.lineTo(3.6, 12.5);
-  ctx.quadraticCurveTo(4.8, 15, 4.4, 17.5);
-  ctx.lineTo(-4.4, 17.5);
-  ctx.quadraticCurveTo(-4.8, 15, -3.6, 12.5);
+  ctx.moveTo(-3.4, 0);
+  ctx.lineTo(3.4, 0);
+  ctx.quadraticCurveTo(4.6, 2.5, 4.2, 5);
+  ctx.lineTo(-4.2, 5);
+  ctx.quadraticCurveTo(-4.6, 2.5, -3.4, 0);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 롱 블레이드 — 발목 폭보다 넓게 벌어졌다가 둥근 끝으로 모이는 과장된 삼각형
+  // 롱 블레이드 (5~28) — 실제 스쿠버 핀처럼 발목에서 좁고 끝으로 갈수록 넓게
+  // 퍼지는(플레어) 사다리꼴, 끝단이 가장 넓고 모서리는 살짝 둥글게
   ctx.beginPath();
-  ctx.moveTo(-4.4, 17.5);
-  ctx.lineTo(4.4, 17.5);
-  ctx.quadraticCurveTo(7.6 + kick * 0.5, 26, 7.2 + kick * 1.1, 34);
-  ctx.quadraticCurveTo(6.4 + tipBend, 42, 3.2 + tipBend, 46.5);
-  ctx.quadraticCurveTo(tipBend * 0.9, 48.2, -2.6 + tipBend, 46.2);
-  ctx.quadraticCurveTo(-5.6 + kick * 0.9, 40, -6.4 + kick * 0.5, 32);
-  ctx.quadraticCurveTo(-7, 24, -4.4, 17.5);
+  ctx.moveTo(-4.2, 5);
+  ctx.lineTo(4.2, 5);
+  ctx.quadraticCurveTo(5.2 + kick * 0.3, 13, 6.4 + kick * 0.7, 21);
+  ctx.quadraticCurveTo(7.2 + tipBend, 25.5, 6.6 + tipBend, 27.6);
+  ctx.quadraticCurveTo(tipBend * 0.9, 29.8, -5.7 + tipBend, 27.4);
+  ctx.quadraticCurveTo(-6.3 + kick * 0.5, 25, -5.5 + kick * 0.3, 20);
+  ctx.quadraticCurveTo(-4.7, 12, -4.2, 5);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 발등 스트랩 밴드 (밝은 회색 굵은 띠) — 다리↔핀 경계를 명도로 확실히 분리
+  // 발등 스트랩 밴드 (밝은 회색 굵은 띠) — 다리↔핀 경계를 명도로 분리
   ctx.fillStyle = '#B9C2CC';
   ctx.beginPath();
-  ctx.roundRect(-4.3, 13.6, 8.6, 3, 1.2);
+  ctx.roundRect(-4.1, 0.9, 8.2, 2.6, 1.1);
   ctx.fill();
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail / scale;
   ctx.stroke();
-  // 광택 하이라이트 (오른쪽 면을 따라 흐르는 윤기)
-  ctx.fillStyle = 'rgba(255,255,255,0.16)';
-  ctx.beginPath();
-  ctx.moveTo(3.4, 19);
-  ctx.quadraticCurveTo(6 + kick * 0.6, 28, 4.2 + tipBend * 0.8, 42);
-  ctx.lineTo(2.2 + tipBend * 0.8, 43);
-  ctx.quadraticCurveTo(2.8 + kick * 0.5, 28, 1.6, 19);
+  // 골(리브)의 입체감 — 밝은 스트로크 대신 세로 구획 명암(셀셰이딩)으로.
+  // 검정에 가까운 블레이드라 잉크 그림자는 안 보이므로, 양옆 구획을 아주 미묘하게
+  // 밝은 톤으로 올려 가운데 골이 상대적으로 파여 보이게 한다.
+  ctx.fillStyle = 'rgba(215,228,240,0.1)';
+  ctx.beginPath(); // 왼쪽 구획
+  ctx.moveTo(-4, 6);
+  ctx.lineTo(-1.6, 6);
+  ctx.quadraticCurveTo(-2 + kick * 0.4, 16, -1.9 + tipBend * 0.9, 27);
+  ctx.lineTo(-5.2 + tipBend * 0.95, 26.9);
+  ctx.quadraticCurveTo(-5.1 + kick * 0.35, 18, -4, 6);
   ctx.closePath();
   ctx.fill();
-  // 세로 골(리브) 라인 2개 — 대비 강하게
-  ctx.strokeStyle = 'rgba(230,238,246,0.5)';
-  ctx.lineWidth = (STROKE.detail / scale) * 1.25;
-  ctx.lineCap = 'round';
-  for (const rx of [-2.4, 2.4]) {
-    ctx.beginPath();
-    ctx.moveTo(rx, 19.5);
-    ctx.quadraticCurveTo(rx * 1.6 + kick * 0.7, 32, rx * 0.8 + tipBend * 0.9, 44);
-    ctx.stroke();
-  }
+  ctx.beginPath(); // 오른쪽 구획 (조금 더 밝게 — 광원 방향)
+  ctx.fillStyle = 'rgba(225,236,246,0.14)';
+  ctx.moveTo(1.6, 6);
+  ctx.lineTo(4, 6);
+  ctx.quadraticCurveTo(5.3 + kick * 0.45, 16, 5.4 + tipBend * 0.95, 26.8);
+  ctx.lineTo(2 + tipBend * 0.9, 27);
+  ctx.quadraticCurveTo(1.9 + kick * 0.4, 16, 1.6, 6);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 다리 한 짝 (허벅지-무릎-정강이 2세그먼트 + 핀) — 엉덩이 관절에서 킥 위상에 따라
+// 스윙하고 무릎 각도도 함께 변해 뻣뻣한 막대가 아닌 발차기 자세가 된다.
+// 좌우 다리를 반대 위상(kick 부호 반대)으로 호출하면 두 갈래가 벌어졌다 모이는
+// 엇갈림 킥이 실루엣만으로 읽힌다.
+function drawLeg(ctx, offsetX, kick, scale, suitColor) {
+  ctx.save();
+  ctx.translate(offsetX, 11); // 엉덩이 관절 (몸통 하단 곡선에 묻혀 자연 연결)
+  ctx.scale(scale, scale);
+  ctx.rotate(kick * 0.05); // 허벅지 스윙 — 엇갈림 킥의 핵심 가시 요소 (크게 벌어지게)
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part / scale;
+  ctx.fillStyle = suitColor;
+  // 허벅지 (짧고 통통한 캡슐, 위쪽은 몸통 아래에 겹쳐 이어짐)
+  ctx.beginPath(); ctx.roundRect(-3.1, -3, 6.2, 10.5, 3.1); ctx.fill(); ctx.stroke();
+  // 무릎 관절: 킥 위상에 따라 굽힘 각 변화 (차는 쪽이 더 굽음)
+  ctx.translate(0, 6.6);
+  ctx.rotate(-0.14 - kick * 0.02);
+  ctx.beginPath(); ctx.roundRect(-2.6, -1.6, 5.2, 9.4, 2.6); ctx.fill(); ctx.stroke();
+  // 발목 → 핀
+  ctx.translate(0, 7.2);
+  drawFinBladeAt(ctx, kick, scale);
   ctx.restore();
 }
 
@@ -278,15 +296,11 @@ export function drawPlayer(ctx, player) {
   outline(ctx, STROKE.detail); ctx.fill(); ctx.stroke();
   ctx.restore();
 
-  // ---- 오리발 (핀) — 좌우 두 짝을 분리해서 반대 위상으로 그려 엇갈린 발차기를 표현 ----
-  // 뒤쪽(몸 안쪽) 다리를 먼저 그려 아래에 깔리게 하고, 앞쪽 다리를 그 위에 겹쳐 그린다.
-  drawFinBlade(ctx, -2.4, backFinKick, 0.88);
-  drawFinBlade(ctx, 2.4, frontFinKick, 1);
-  // 발 스트랩 (양쪽 발목을 가로지르는 벨트, 다리 사이 이음새를 자연스럽게 가려줌)
-  ctx.strokeStyle = SUIT_BELT; ctx.lineWidth = 2.3; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(-6, 15.5 - backFinKick * 0.08); ctx.lineTo(6.5, 15.5 - frontFinKick * 0.08); ctx.stroke();
-  outline(ctx, STROKE.detail);
-  ctx.beginPath(); ctx.moveTo(-6, 15.5 - backFinKick * 0.08); ctx.lineTo(6.5, 15.5 - frontFinKick * 0.08); ctx.stroke();
+  // ---- 다리 + 오리발 — 좌우 두 짝을 분리해 반대 위상으로 그려 엇갈린 발차기를 표현 ----
+  // 뒤쪽(몸 안쪽) 다리를 어두운 슈트 색으로 먼저 깔고, 앞쪽 다리를 밝은 슈트 색으로
+  // 겹쳐 그려 두 갈래가 명도만으로도 분리돼 보이게 한다.
+  drawLeg(ctx, -4.4, backFinKick, 0.88, SUIT_PANEL);
+  drawLeg(ctx, 4.4, frontFinKick, 1, SUIT_MAIN);
 
   // ---- 몸통 (통통하고 둥근 웻슈트 — 타원보다 원에 가깝게, 부드러운 곡선) ----
   ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette;
