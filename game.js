@@ -35,7 +35,20 @@ const CROSSING_SPECIES = new Set([
   'reefshark', 'orca', 'flyingfish', 'bluetang', 'clownfish', 'seaturtle',
   'lanternfish', 'hatchetfish', 'deepoctopus', 'dumbooctopus',
 ]);
-const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률
+const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률 (좌→우/우→좌 균등)
+
+// ---- 행동 레퍼토리 (종 성격별 배정 — 매복형/고정형은 어디에도 안 들어가 기존 유지) ----
+// 회유(U턴): 가로지르다 완만한 호를 그리며 방향을 되돌리는 유영 생물
+const UTURN_SPECIES = new Set(['seaturtle', 'bluetang', 'lanternfish', 'hatchetfish', 'deepoctopus']);
+const UTURN_CHANCE = 0.4;
+// 호버링: 산호 주변에 사는 소형 어류 — 한 지점 주변에서 작은 8자를 그리며 맴돎
+const HOVER_SPECIES = new Set(['clownfish', 'bluetang']);
+const HOVER_CHANCE = 0.6;
+// 가속-활공(burst & glide): 꼬리 킥에 맞춰 훅 가속했다가 관성으로 미끄러지는 대형 유영어
+const BURST_GLIDE_SPECIES = new Set(['reefshark', 'orca', 'flyingfish']);
+// 도망 반응: 다이버 접근 시 은은하게 멀어지는 관상용 소형 어류
+const FLEE_SPECIES = new Set(['clownfish', 'bluetang', 'hatchetfish', 'lanternfish', 'dumbooctopus']);
+const FLEE_RADIUS = 85;
 
 // 지나갈 때 가끔 기포를 흘리는 대형 생물 (범고래/상어/거북 등 덩치 큰 종)
 const BIG_BUBBLE_SPECIES = new Set(['orca', 'reefshark', 'seaturtle', 'deepoctopus', 'giantisopod']);
@@ -266,13 +279,20 @@ function spawnCreature(depthM) {
   const spawnY = spawnEdgeY(r);
   let crossDir = 0, crossSpeed = 0;
   let x;
+  const extra = {};
   // 유영성 어류/생물 일부는 제자리 sway 대신 화면을 대각선으로 가로지르며 지나가게 한다
   // (고정형/매복형 생물은 CROSSING_SPECIES에 없으므로 항상 기존처럼 제자리 유지)
   if (CROSSING_SPECIES.has(sp.id) && Math.random() < CROSS_CHANCE) {
-    crossDir = Math.random() < 0.5 ? 1 : -1;
+    crossDir = Math.random() < 0.5 ? 1 : -1; // 좌→우 / 우→좌 균등
     crossSpeed = randRange(16, 38);
     x = crossDir === 1 ? -r : CANVAS_W + r; // 화면 밖에서 시작해 가로질러 등장 (x 고정)
     if (!farFromOtherCreatures(x, spawnY)) return; // 겹치면 이번 스폰은 건너뜀
+    // 회유: 일부는 화면 중간쯤에서 완만한 호를 그리며 되돌아간다
+    if (UTURN_SPECIES.has(sp.id) && Math.random() < UTURN_CHANCE) {
+      extra.turnAt = randRange(1.5, 4.0);   // 스폰 후 몇 초 뒤 턴 시작
+      extra.turnDur = randRange(1.8, 2.8);  // 턴에 걸리는 시간 (부드러운 반원)
+    }
+    if (BURST_GLIDE_SPECIES.has(sp.id)) extra.burstGlide = true;
   } else {
     // 겹치지 않는 x가 나올 때까지 몇 번 재추첨, 전부 실패하면 스폰 스킵
     let found = false;
@@ -281,6 +301,11 @@ function spawnCreature(depthM) {
       if (farFromOtherCreatures(cand, spawnY)) { x = cand; found = true; break; }
     }
     if (!found) return;
+    // 호버링: 소형 어류는 한 지점 주변에서 작은 8자를 그리며 맴돈다
+    if (HOVER_SPECIES.has(sp.id) && Math.random() < HOVER_CHANCE) {
+      extra.hoverR = randRange(5, 11);
+      extra.hoverW = randRange(1.2, 2.2);
+    }
   }
   state.creatures.push({
     speciesId: sp.id,
@@ -289,6 +314,10 @@ function spawnCreature(depthM) {
     phase: Math.random() * Math.PI * 2,
     spawnT: Math.random() * 10,
     crossDir, crossSpeed,
+    t: 0,        // 개체 수명 시계 (행동 타이밍용)
+    face: crossDir === -1 ? -1 : 1, // 스프라이트 좌우(수평) 반전 방향 — 이동 방향을 따라감
+    tilt: 0,     // 회유 턴 중 몸 기울기(rad)
+    ...extra,
   });
   state.speciesLastSpawn[sp.id] = state.timeSec;
   state.lastSpeciesId = sp.id;
@@ -545,12 +574,59 @@ function update(dtSecRaw) {
   for (let i = state.creatures.length - 1; i >= 0; i--) {
     const c = state.creatures[i];
     c.y -= scrollPx;
-    if (c.crossDir) c.baseX += c.crossDir * c.crossSpeed * dtSec; // 대각선으로 화면을 가로지름
+    c.t += dtSec;
     const sp = speciesById(c.speciesId);
+
+    // ---- 가로지르기 / 회유(U턴) / 가속-활공 ----
+    if (c.crossDir) {
+      let dirF = c.crossDir; // 연속적인 진행 방향 계수 (턴 중엔 +1↔-1 사이를 지남)
+      if (c.turnAt != null && c.t >= c.turnAt) {
+        const prog = Math.min(1, (c.t - c.turnAt) / c.turnDur);
+        dirF = c.crossDir * Math.cos(prog * Math.PI); // 급격한 스냅 없이 완만한 호로 반전
+        c.tilt = Math.sin(prog * Math.PI) * 0.26 * c.crossDir; // 턴 중 몸이 살짝 기울어짐(roll)
+        if (prog >= 1) { c.crossDir = -c.crossDir; c.turnAt = null; c.tilt = 0; }
+      }
+      let speed = c.crossSpeed;
+      if (c.burstGlide) {
+        // 꼬리 킥에 맞춰 훅 가속 → 관성 활공 (일정 속도 대신 사인 리듬)
+        const kick = Math.max(0, Math.sin((c.t + c.spawnT) * 2.4));
+        speed *= 0.5 + kick * kick * 1.1;
+      }
+      c.baseX += dirF * speed * dtSec;
+      if (Math.abs(dirF) > 0.12) c.face = dirF > 0 ? 1 : -1; // 이동 방향을 보며 헤엄침 (수평 반전)
+    }
+
+    // ---- 호버링 (작은 8자 리사주 — 산호 주변에 사는 느낌) ----
+    let hoverDX = 0, hoverDY = 0;
+    if (c.hoverR) {
+      const ht = (c.t + c.spawnT) * c.hoverW;
+      hoverDX = Math.sin(ht) * c.hoverR;
+      hoverDY = Math.sin(ht * 2) * c.hoverR * 0.45;
+      c.face = Math.cos(ht) >= 0 ? 1 : -1; // 8자 진행 방향을 따라 좌우 전환
+    }
+
+    // ---- 도망 반응 (관상용 소형 어류만, 은은하게) ----
+    if (FLEE_SPECIES.has(sp.id) && !state.over) {
+      const fdx = (c.curX ?? c.baseX) - player.x;
+      const fdy = (c.curY ?? c.y) - player.y;
+      const fd = Math.hypot(fdx, fdy);
+      if (fd < FLEE_RADIUS && fd > 1) {
+        const push = (1 - fd / FLEE_RADIUS) * 55; // 가까울수록 살짝 빨라짐
+        c.baseX += (fdx / fd) * push * dtSec;
+        c.fleeY = (c.fleeY || 0) + (fdy / fd) * push * dtSec * 0.5;
+      }
+    }
+
+    // 제자리형(비가로지르기) 생물이 도망/호버로 화면 밖까지 밀려나지 않게 클램프
+    if (!c.crossDir) {
+      const rr = creatureVisualRadius(sp);
+      c.baseX = clamp(c.baseX, rr + 4, CANVAS_W - rr - 4);
+    }
+
     const swayFreq = (Math.PI * 2) / sp.swayPeriod;
     const t = state.timeSec + c.spawnT;
-    c.curX = c.baseX + Math.sin(t * swayFreq + c.phase) * sp.swayAmp;
-    c.curY = c.y;
+    c.curX = c.baseX + Math.sin(t * swayFreq + c.phase) * sp.swayAmp + hoverDX;
+    c.curY = c.y + hoverDY + (c.fleeY || 0);
 
     const r = creatureVisualRadius(sp) * 0.6;
     const pr = PLAYER_RADIUS * 0.6;
@@ -716,12 +792,15 @@ function render() {
   for (const c of state.creatures) {
     const sp = speciesById(c.speciesId);
     const px = c.curX ?? c.baseX, py = c.curY ?? c.y;
-    if (c.crossDir === -1) {
-      // 기본 스프라이트는 오른쪽을 향하므로, 왼쪽으로 가로지르는 개체는 좌우 반전해서
-      // 실제 이동 방향을 보고 헤엄치는 것처럼 보이게 한다.
+    // 기본 스프라이트는 오른쪽을 향함 — 이동 방향(face)에 맞춰 수평 반전하고,
+    // 회유 턴 중에는 몸 기울기(tilt)를 살짝 준다. 수직 반전은 절대 하지 않음.
+    const face = c.face ?? 1;
+    if (face === -1 || c.tilt) {
       ctx.save();
-      ctx.translate(px, py); ctx.scale(-1, 1); ctx.translate(-px, -py);
-      sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
+      ctx.translate(px, py);
+      if (c.tilt) ctx.rotate(c.tilt);
+      if (face === -1) ctx.scale(-1, 1);
+      sp.draw(ctx, 0, 0, state.timeSec + c.spawnT, sp.size);
       ctx.restore();
     } else {
       sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
@@ -750,7 +829,7 @@ function render() {
       if (!spots) continue;
       const wx = c.curX ?? c.baseX;
       const wy = c.curY ?? c.y;
-      const flip = c.crossDir === -1 ? -1 : 1;
+      const flip = c.face ?? 1;
       for (const spot of spots) {
         glow(ctx, wx + spot.dx * flip * sp.size, wy + spot.dy * sp.size, spot.r * sp.size, spot.color, spot.alpha);
       }
