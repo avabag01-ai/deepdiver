@@ -15,6 +15,10 @@ import {
 } from './globe.js';
 import * as sound from './sound.js';
 import { UPGRADES, MAGNET_RADII, loadPearls, savePearls, loadUpgrades, saveUpgrades } from './shop.js';
+import {
+  DEX_INFO, rarityOf, ZONE_LABELS, speciesInZone,
+  loadObservedSet, saveObservedSet, loadDexBonuses, saveDexBonuses, renderSpeciesThumb,
+} from './dex.js';
 
 const PX_PER_METER = 20;
 const MAX_ENTITIES_ON_SCREEN = 7;
@@ -92,6 +96,59 @@ const GLOBE_R = Math.min(globeCanvas.width, globeCanvas.height) * 0.37;
 
 const globeState = createGlobeState();
 let clearedSet = loadClearedSet();
+
+// ---- 도감: 영구 관찰 기록 + 발견/완성 보상 ----
+const OBSERVE_DIST = 75; // 이 거리 안으로 지나가면 "관찰"로 기록 (충돌 불필요)
+let observedSet = loadObservedSet();
+let dexBonuses = loadDexBonuses();
+
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+const toastQueue = [];
+function showToast(msg) {
+  toastQueue.push(msg);
+  if (!toastTimer) nextToast();
+}
+function nextToast() {
+  const msg = toastQueue.shift();
+  if (!msg) { toastTimer = null; return; }
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  toastTimer = setTimeout(() => {
+    toastEl.classList.remove('show');
+    toastTimer = setTimeout(nextToast, 300);
+  }, 2100);
+}
+
+// 종을 처음 관찰하면 기록·보상하고, 구역/전체 완성 보너스도 여기서 판정한다
+function recordObservation(sp) {
+  if (observedSet.has(sp.id)) return;
+  observedSet.add(sp.id);
+  saveObservedSet(observedSet);
+  pearlBalance += 5; // 첫 발견 보너스
+  savePearls(pearlBalance);
+  sound.playPearl();
+  showToast(`📖 새로운 종 발견! ${sp.name} (+5🦪)`);
+  // 구역 완성 체크
+  const zoneSpecies = speciesInZone(sp.zone);
+  if (!dexBonuses[sp.zone] && zoneSpecies.every(z => observedSet.has(z.id))) {
+    dexBonuses[sp.zone] = true;
+    pearlBalance += 50;
+    const zl = ZONE_LABELS.find(z => z.id === sp.zone);
+    showToast(`🏅 ${zl ? zl.label : sp.zone} 도감 완성! (+50🦪)`);
+    sound.playChest();
+  }
+  // 전체 완성 체크
+  if (!dexBonuses.all && observedSet.size >= TOTAL_SPECIES) {
+    dexBonuses.all = true;
+    pearlBalance += 200;
+    showToast('👑 도감 28종 전체 완성! (+200🦪)');
+    sound.playLevelClearFanfare();
+  }
+  saveDexBonuses(dexBonuses);
+  savePearls(pearlBalance);
+  updatePearlUI();
+}
 
 // ---- 메타 진행: 진주 재화 + 영구 업그레이드 (localStorage) ----
 let pearlBalance = loadPearls();
@@ -217,6 +274,89 @@ function renderShop() {
   }
 }
 
+// ---- 도감 UI ----
+const dexPanel = document.getElementById('dexPanel');
+const dexGridWrap = document.getElementById('dexGridWrap');
+const dexProgressEl = document.getElementById('dexProgress');
+const btnDex = document.getElementById('btnDex');
+const btnDexClose = document.getElementById('btnDexClose');
+const dexCard = document.getElementById('dexCard');
+const dexCardArt = document.getElementById('dexCardArt');
+const btnDexCardClose = document.getElementById('btnDexCardClose');
+
+// 썸네일 캐시: 관찰 여부가 바뀌면 다시 그려야 하므로 "id:observed" 키로 캐시
+const thumbCache = new Map();
+function getThumb(spId, observed) {
+  const key = `${spId}:${observed ? 1 : 0}`;
+  if (!thumbCache.has(key)) thumbCache.set(key, renderSpeciesThumb(spId, 56, observed));
+  return thumbCache.get(key);
+}
+
+function openDexCard(spId) {
+  const sp = speciesById(spId);
+  const info = DEX_INFO[spId] || {};
+  const rar = rarityOf(spId);
+  // 상세 일러스트: 카드 아트 캔버스에 크게 렌더
+  const actx = dexCardArt.getContext('2d');
+  actx.clearRect(0, 0, dexCardArt.width, dexCardArt.height);
+  actx.save();
+  actx.translate(dexCardArt.width / 2, dexCardArt.height / 2);
+  const s = 2.6 / sp.size;
+  actx.scale(s, s);
+  sp.draw(actx, 0, 0, 1.7, sp.size);
+  actx.restore();
+  document.getElementById('dexCardName').textContent = sp.name;
+  document.getElementById('dexCardEn').textContent = info.en || '';
+  const rarEl = document.getElementById('dexCardRarity');
+  rarEl.textContent = `★ ${rar.label}`;
+  rarEl.style.color = rar.color;
+  document.getElementById('dexCardDepth').textContent = info.depth || '?';
+  document.getElementById('dexCardSize').textContent = info.size || '?';
+  document.getElementById('dexCardFact').textContent = info.fact || '';
+  dexCard.classList.add('show');
+}
+
+function renderDex() {
+  dexProgressEl.textContent = `${observedSet.size}/${TOTAL_SPECIES} 관찰`;
+  dexGridWrap.innerHTML = '';
+  for (const zone of ZONE_LABELS) {
+    const list = speciesInZone(zone.id);
+    const seen = list.filter(sp => observedSet.has(sp.id)).length;
+    const title = document.createElement('div');
+    title.className = 'dexZoneTitle';
+    const done = seen === list.length;
+    title.innerHTML = `<span>${zone.label}</span><span class="zoneCount${done ? ' zoneDone' : ''}">${done ? '완성! 🏅' : `${seen}/${list.length}`}</span>`;
+    dexGridWrap.appendChild(title);
+    const grid = document.createElement('div');
+    grid.className = 'dexGrid';
+    for (const sp of list) {
+      const observed = observedSet.has(sp.id);
+      const cell = document.createElement('div');
+      cell.className = 'dexCell ' + (observed ? 'observed' : 'unobserved');
+      cell.appendChild(getThumb(sp.id, observed));
+      const nm = document.createElement('div');
+      nm.className = 'cellName';
+      nm.textContent = observed ? sp.name : '???';
+      cell.appendChild(nm);
+      if (observed) {
+        cell.addEventListener('click', () => { sound.playClick(); openDexCard(sp.id); });
+      }
+      grid.appendChild(cell);
+    }
+    dexGridWrap.appendChild(grid);
+  }
+}
+
+function openDex() {
+  renderDex();
+  dexPanel.classList.add('show');
+}
+
+btnDex.addEventListener('click', () => { sound.initAudio(); sound.playClick(); openDex(); });
+btnDexClose.addEventListener('click', () => { sound.playClick(); dexPanel.classList.remove('show'); });
+btnDexCardClose.addEventListener('click', () => { sound.playClick(); dexCard.classList.remove('show'); });
+dexCard.addEventListener('click', (e) => { if (e.target === dexCard) dexCard.classList.remove('show'); });
+
 function openShop() {
   renderShop();
   shopPanel.classList.add('show');
@@ -282,7 +422,6 @@ function makeInitialState() {
     maxDepthM: startDepthM, // 클리어 결과 화면에 "최고 도달 깊이"로 표시(상승 중엔 depthM이 줄어들므로 별도 추적)
     totalScrollPx: startDepthM * PX_PER_METER,
     score: 0,
-    dex: new Set(),
     health: maxHealth(),
     invulnUntil: -1,
     shakeUntil: -1,
@@ -561,7 +700,7 @@ function endGame() {
   btnRestart.textContent = '다시 하강';
   finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
   finalScoreEl.textContent = `수집 점수 ${state.score}`;
-  finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
+  finalDexEl.textContent = `관찰한 종 ${observedSet.size}/${TOTAL_SPECIES}`;
   overlay.classList.add('show');
 }
 
@@ -580,7 +719,7 @@ function clearLevel() {
   btnRestart.textContent = '다시 도전';
   finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
   finalScoreEl.textContent = `수집 점수 ${state.score}`;
-  finalDexEl.textContent = `관찰한 종 ${state.dex.size}/${TOTAL_SPECIES}`;
+  finalDexEl.textContent = `관찰한 종 ${observedSet.size}/${TOTAL_SPECIES}`;
   overlay.classList.add('show');
 }
 
@@ -809,8 +948,13 @@ function update(dtSecRaw) {
     const pr = PLAYER_RADIUS * 0.6;
     const dx = c.curX - player.x;
     const dy = c.curY - player.y;
-    if (!state.over && dx * dx + dy * dy < (r + pr) * (r + pr)) {
-      state.dex.add(sp.id);
+    const distSq = dx * dx + dy * dy;
+    // 근접 관찰: 부딪히지 않아도 가까이 지나가면 도감에 기록된다
+    // (관찰이 목적인데 충돌해야만 기록되는 모순 제거)
+    if (!state.over && !state.cleared && distSq < OBSERVE_DIST * OBSERVE_DIST) {
+      recordObservation(sp);
+    }
+    if (!state.over && distSq < (r + pr) * (r + pr)) {
       damagePlayer();
     }
 
@@ -933,7 +1077,7 @@ function update(dtSecRaw) {
 function updateHud(depthM) {
   hudDepth.textContent = `${Math.max(0, Math.floor(depthM))} m`;
   hudScore.textContent = `🦪 ${state.score}`;
-  hudDex.textContent = `도감 ${state.dex.size}/${TOTAL_SPECIES}`;
+  hudDex.textContent = `도감 ${observedSet.size}/${TOTAL_SPECIES}`;
   hudHealth.textContent = HEART_FULL.repeat(state.health) + HEART_EMPTY.repeat(Math.max(0, maxHealth() - state.health));
   if (hudPhase) {
     if (state.targetDepthM == null) {
