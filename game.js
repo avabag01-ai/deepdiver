@@ -13,6 +13,7 @@ import {
   DIVE_SITES, projectSites, drawPins, hitTestPins,
   loadClearedSet, saveClearedSet, isSiteUnlocked,
 } from './globe.js';
+import * as sound from './sound.js';
 
 const PX_PER_METER = 20;
 const MAX_ENTITIES_ON_SCREEN = 7;
@@ -81,6 +82,10 @@ let lastProjectedPins = [];
 
 attachGlobeDrag(globeCanvas, globeState);
 
+// 폴백: 어떤 경로로 진입하든(예: ?depth= 개발 모드) 첫 포인터 입력에서 오디오 컨텍스트를
+// 확실히 초기화한다. initAudio()는 멱등이라 여러 번 호출해도 안전하다.
+window.addEventListener('pointerdown', () => sound.initAudio(), { once: true });
+
 function updateSiteCardUI() {
   if (!selectedPin) { siteCard.classList.remove('show'); return; }
   const { site, index } = selectedPin;
@@ -111,6 +116,7 @@ function globeLocalXY(e) {
   };
 }
 globeCanvas.addEventListener('pointerdown', (e) => {
+  sound.initAudio(); // 첫 사용자 제스처 — iOS Safari 자동재생 정책 대응
   const p = globeLocalXY(e);
   pinDownX = p.x; pinDownY = p.y; pinMoved = false;
 });
@@ -122,6 +128,7 @@ globeCanvas.addEventListener('pointerup', (e) => {
   if (pinMoved) return; // 드래그였으면 탭으로 취급하지 않음
   const p = globeLocalXY(e);
   const hit = hitTestPins(lastProjectedPins, p.x, p.y);
+  if (hit) sound.playClick();
   selectedPin = hit || null;
   updateSiteCardUI();
 });
@@ -139,6 +146,7 @@ function showGlobeScreen() {
   globeScreen.classList.remove('hide');
   hudEl.style.display = 'none';
   overlay.classList.remove('show');
+  sound.stopAmbience();
 }
 
 function showDivingScreen() {
@@ -189,6 +197,8 @@ function makeInitialState() {
     bursts: [],
     bubbles: [],
     ambientBubbleTimer: randRange(1.2, 2.4),
+    breathSoundTimer: randRange(1.4, 2.2),
+    creatureHintCooldown: randRange(2, 4),
     creatureSpawnTimer: randRange(0.65, 1.4),
     itemSpawnTimer: randRange(2.2, 3.6),
     potionSpawnTimer: randRange(8, 15),
@@ -357,6 +367,7 @@ function spawnAmbientBubbles(depthM) {
 function endGame() {
   state.over = true;
   state.running = false;
+  sound.stopAmbience();
   overlayTitleEl.textContent = '조난';
   btnRestart.textContent = '다시 하강';
   finalDepthEl.textContent = `최고 도달 깊이 ${Math.floor(state.maxDepthM)} m`;
@@ -369,6 +380,8 @@ function endGame() {
 function clearLevel() {
   state.cleared = true;
   state.running = false;
+  sound.playLevelClearFanfare();
+  sound.stopAmbience();
   if (currentSite) {
     clearedSet.add(currentSite.id);
     saveClearedSet(clearedSet);
@@ -402,6 +415,7 @@ function beginAscent() {
 function damagePlayer() {
   if (state.over || state.cleared) return;
   if (state.timeSec < state.invulnUntil) return; // 무적 시간 중이면 무시
+  sound.playHit();
   state.health -= 1;
   state.invulnUntil = state.timeSec + INVULN_DURATION;
   state.shakeUntil = state.timeSec + SHAKE_DURATION;
@@ -426,6 +440,8 @@ function update(dtSecRaw) {
   state.timeSec += dtSec;
 
   const depthM = currentDepthM();
+  const zone = zoneAt(depthM);
+  sound.updateAmbience(depthM, zone.id);
   const scrollSpeed = scrollSpeedForDepth(depthM);
   // 부호 있는 스크롤량 — 하강(1)이면 기존과 동일, 상승(-1)이면 부호만 뒤집혀
   // totalScrollPx(=깊이)가 줄어들고, 아래에 있는 "-= scrollPx" 코드들도 그대로
@@ -491,8 +507,17 @@ function update(dtSecRaw) {
   state.ambientBubbleTimer -= dtSec;
   if (state.ambientBubbleTimer <= 0) {
     spawnAmbientBubbles(depthM);
+    sound.playBubble(0.8 + Math.random() * 0.3, 0.05); // 환경 기포는 아주 은은하게
     state.ambientBubbleTimer = randRange(1.4, 2.8);
   }
+  // 다이버 숨쉬기 리듬에 맞춘 기포음 (트레일 자체는 시각 전용 사인 사이클이라
+  // 별도 타이머로 소리만 주기적으로 낸다)
+  state.breathSoundTimer -= dtSec;
+  if (state.breathSoundTimer <= 0) {
+    sound.playBubble(1 + Math.random() * 0.4, 0.14);
+    state.breathSoundTimer = randRange(1.6, 2.6);
+  }
+  state.creatureHintCooldown -= dtSec;
 
   // ---- 생물 갱신 + 충돌 ----
   // 다이버가 하강할수록 생물은 화면 아래에서 나타나 위로 흘러가 사라진다 (지형과 동일 방향).
@@ -518,6 +543,18 @@ function update(dtSecRaw) {
     // 큰 생물이 지나갈 때 가끔 기포를 흘린다 (아주 낮은 확률로, 매 프레임 체크)
     if (BIG_BUBBLE_SPECIES.has(sp.id) && state.bubbles.length < MAX_BUBBLES && Math.random() < 0.02) {
       state.bubbles.push(...createBubbleColumn(c.curX, c.curY, 1 + Math.floor(Math.random() * 2), 0.8, 0.9));
+      sound.playBubble(0.7, 0.07);
+    }
+
+    // 심해 암전 구역에서 발광 생물이 가까이 오면 아주 은은한 톤 힌트로 긴장감을 준다
+    // (쿨다운으로 스팸 방지, 거리가 가까울수록 살짝 또렷하게)
+    if (zone.pitchBlack && sp.glowing && state.creatureHintCooldown <= 0) {
+      const hdx = c.curX - player.x, hdy = c.curY - player.y;
+      const dist = Math.hypot(hdx, hdy);
+      if (dist < 100) {
+        sound.playCreatureHint(clamp(1 - dist / 100, 0, 1));
+        state.creatureHintCooldown = randRange(3, 6);
+      }
     }
 
     const crossedOff = c.crossDir && (c.curX < -80 || c.curX > CANVAS_W + 80);
@@ -538,13 +575,18 @@ function update(dtSecRaw) {
       const def = ITEM_TYPES[it.type];
       if (def.kind === 'heal') {
         healPlayer();
+        sound.playPotion();
         state.bursts.push(createBurst(it.x, it.y, '#7dffb0'));
       } else if (def.kind === 'levelGoal') {
         state.score += def.points;
+        sound.playTreasureFanfare();
         state.bursts.push(createBurst(it.x, it.y, '#ffe27a'));
         beginAscent();
       } else {
         state.score += def.points;
+        if (it.type === 'chest') sound.playChest();
+        else if (it.type === 'oxygen') sound.playOxygen();
+        else sound.playPearl();
         state.bursts.push(createBurst(it.x, it.y, it.type === 'chest' ? '#ffe27a' : '#bfe8ff'));
       }
       state.items.splice(i, 1);
@@ -752,16 +794,25 @@ function startDive(site) {
   overlay.classList.remove('show');
   lastTs = null;
   showDivingScreen();
+  sound.startAmbience();
 }
 
 btnDiveStart.addEventListener('click', () => {
+  sound.initAudio(); // 첫 사용자 제스처 보장 지점 — iOS Safari 자동재생 정책 대응
+  sound.playClick();
   if (!selectedPin) return;
   if (!isSiteUnlocked(selectedPin.index, clearedSet, DIVE_SITES)) return;
   startDive(selectedPin.site);
 });
 
-btnRestart.addEventListener('click', () => startDive(currentSite));
+btnRestart.addEventListener('click', () => {
+  sound.initAudio();
+  sound.playClick();
+  startDive(currentSite);
+});
 btnGlobeFromOver.addEventListener('click', () => {
+  sound.initAudio();
+  sound.playClick();
   selectedPin = null;
   updateSiteCardUI();
   showGlobeScreen();
