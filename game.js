@@ -154,7 +154,7 @@ function renderGlobeScreen() {
   drawSpaceBackground(globeCtx, globeCanvas.width, globeCanvas.height, state.timeSec);
   drawGlobe(globeCtx, GLOBE_CX, GLOBE_CY, GLOBE_R, globeState);
   lastProjectedPins = projectSites(GLOBE_CX, GLOBE_CY, GLOBE_R, globeState, DIVE_SITES);
-  drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES);
+  drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES, state.timeSec);
 }
 
 function showGlobeScreen() {
@@ -901,15 +901,17 @@ function render() {
     drawDepthVeil(ctx, depthM);
   }
 
+  // 헤드램프 글로우는 밝은 표층에선 안 보이고, 어두워질수록 서서히 켜진다
+  const lampT = clamp((depthM - 60) / 240, 0, 1);
   // 무적 시간 동안 다이버를 깜빡여서 피격 후 보호 상태임을 알림
   if (invulnerable) {
     const blinkOn = Math.floor(state.timeSec * 10) % 2 === 0;
     ctx.save();
     ctx.globalAlpha = blinkOn ? 1 : 0.35;
-    drawPlayer(ctx, player);
+    drawPlayer(ctx, player, lampT);
     ctx.restore();
   } else {
-    drawPlayer(ctx, player);
+    drawPlayer(ctx, player, lampT);
   }
 
   for (const b of state.bursts) drawBurst(ctx, b);

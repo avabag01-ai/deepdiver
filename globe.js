@@ -189,18 +189,42 @@ function drawGraticuleLine(ctx, kind, value, rotLon, rotLat, R, cx, cy) {
 }
 
 function drawContinentPolygons(ctx, rotLon, rotLat, R, cx, cy) {
-  ctx.fillStyle = '#3f9760';
-  ctx.strokeStyle = 'rgba(20,50,25,0.55)';
-  ctx.lineWidth = 1;
+  const tracePath = (pts, shrink = 1, ox = 0, oy = 0) => {
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = ox + (p.x - ox) * shrink;
+      const y = oy + (p.y - oy) * shrink;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+  };
   for (const poly of CONTINENTS) {
     const pts = poly
       .map(([lon, lat]) => project(lon, lat, rotLon, rotLat, R, cx, cy))
       .filter(p => p.z > 0.02);
     if (pts.length < 3) continue;
-    ctx.beginPath();
-    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-    ctx.closePath();
+    // 본체
+    ctx.fillStyle = '#3f9760';
+    tracePath(pts);
     ctx.fill();
+    // 내륙 음영: 센트로이드 쪽으로 수축한 폴리곤을 어두운 톤으로 겹쳐
+    // 플랫한 단색 대신 고도감/입체감을 준다 (2단계)
+    let mx = 0, my = 0;
+    for (const p of pts) { mx += p.x; my += p.y; }
+    mx /= pts.length; my /= pts.length;
+    ctx.fillStyle = 'rgba(34,102,58,0.55)';
+    tracePath(pts, 0.66, mx, my);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(22,74,42,0.45)';
+    tracePath(pts, 0.36, mx, my);
+    ctx.fill();
+    // 해안선: 어두운 윤곽 + 그 위 밝은 하이라이트 림 (물과 만나는 경계 강조)
+    tracePath(pts);
+    ctx.strokeStyle = 'rgba(20,50,25,0.6)';
+    ctx.lineWidth = 1.7;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(214,255,226,0.45)';
+    ctx.lineWidth = 0.8;
     ctx.stroke();
   }
 }
@@ -342,56 +366,81 @@ export function projectSites(cx, cy, R, globeState, sites) {
   });
 }
 
-// 핀 마커 그리기 — 잠김(회색+자물쇠) / 도전 가능(발광 핀) / 클리어(초록+체크) 3상태.
-export function drawPins(ctx, projected, clearedSet, sites) {
+// 핀 머리(원형 부분) 중심의 로컬 y 오프셋 — 물방울 핀의 꼭지점이 스팟 좌표에 닿고
+// 머리는 그 위에 떠 있는 구조. 그리기와 히트테스트가 같은 값을 써야 한다.
+const PIN_HEAD_R = 9;
+const PIN_HEAD_DY = -15;
+
+// 핀 마커 그리기 — 구글맵식 물방울(teardrop) 핀, 3상태:
+// 잠김(회색+자물쇠) / 도전 가능(노랑+레벨 번호+펄스 글로우) / 클리어(초록+체크).
+// timeSec은 도전 가능 핀의 펄스 애니메이션용 (생략 시 정적).
+export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0) {
   for (const p of projected) {
     if (!p.visible) continue;
     const unlocked = isSiteUnlocked(p.index, clearedSet, sites);
     const cleared = clearedSet.has(p.site.id);
-    const s = Math.max(0.35, p.scale);
+    const s = Math.max(0.5, p.scale);
+    const headR = PIN_HEAD_R * s;
+    const headY = PIN_HEAD_DY * s;
     ctx.save();
     ctx.translate(p.x, p.y);
 
     if (unlocked && !cleared) {
-      // 도전 가능한 핀은 은은한 발광 링으로 시선을 끈다
-      const glowR = 11 * s;
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR);
+      // 도전 가능한 핀: 펄스 발광 링으로 시선 유도
+      const pulse = 1 + Math.sin(timeSec * 3 + p.index) * 0.18;
+      const glowR = headR * 2 * pulse;
+      const g = ctx.createRadialGradient(0, headY, 0, 0, headY, glowR);
       g.addColorStop(0, 'rgba(255,224,120,0.55)');
       g.addColorStop(1, 'rgba(255,224,120,0)');
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 0, glowR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, headY, glowR, 0, Math.PI * 2); ctx.fill();
     }
 
     const color = !unlocked ? '#7a8593' : cleared ? '#3fe08a' : '#ffd34d';
+    // 물방울 핀: 원형 머리 + 스팟 좌표(0,0)로 모이는 꼬리
     ctx.beginPath();
-    ctx.arc(0, 0, 5.2 * s, 0, Math.PI * 2);
+    ctx.arc(0, headY, headR, Math.PI * 0.82, Math.PI * 0.18, false);
+    ctx.quadraticCurveTo(headR * 0.55, headY + headR * 0.9, 0, 0); // 오른쪽 → 꼭지점
+    ctx.quadraticCurveTo(-headR * 0.55, headY + headR * 0.9, -headR * Math.cos(Math.PI * 0.18), headY + headR * Math.sin(Math.PI * 0.18));
+    ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = '#16233B';
-    ctx.lineWidth = 1.4 * s;
+    ctx.lineWidth = 1.6 * s;
     ctx.stroke();
 
-    ctx.font = `${8 * s}px sans-serif`;
+    // 머리 안 흰 원판 + 상태 표시(레벨 번호/자물쇠/체크)
+    ctx.beginPath();
+    ctx.arc(0, headY, headR * 0.62, 0, Math.PI * 2);
+    ctx.fillStyle = !unlocked ? 'rgba(230,235,242,0.85)' : '#ffffff';
+    ctx.fill();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     if (!unlocked) {
-      ctx.fillText('🔒', 0, 0.5 * s);
+      ctx.font = `${9 * s}px sans-serif`;
+      ctx.fillText('🔒', 0, headY + 0.5 * s);
     } else if (cleared) {
+      ctx.fillStyle = '#1d7a4c';
+      ctx.font = `700 ${10 * s}px sans-serif`;
+      ctx.fillText('✓', 0, headY + 0.5 * s);
+    } else {
       ctx.fillStyle = '#16233B';
-      ctx.font = `700 ${7 * s}px sans-serif`;
-      ctx.fillText('✓', 0, 0.5 * s);
+      ctx.font = `700 ${9.5 * s}px sans-serif`;
+      ctx.fillText(String(p.index + 1), 0, headY + 0.5 * s);
     }
     ctx.restore();
   }
 }
 
 // 탭 좌표(캔버스 로컬 px)에 가장 가까운 핀을 찾는다. 못 찾으면 null.
+// 물방울 핀의 "머리" 중심 기준으로 판정하고, 손가락 탭 여유를 넉넉히 준다.
 export function hitTestPins(projected, x, y) {
   let best = null, bestD = Infinity;
   for (const p of projected) {
     if (!p.visible) continue;
-    const r = 10 * Math.max(0.35, p.scale) + 6; // 손가락 탭 여유를 위해 실제 반경보다 넉넉하게
-    const d = Math.hypot(x - p.x, y - p.y);
+    const s = Math.max(0.5, p.scale);
+    const r = PIN_HEAD_R * s + 10;
+    const d = Math.hypot(x - p.x, y - (p.y + PIN_HEAD_DY * s));
     if (d < r && d < bestD) { bestD = d; best = p; }
   }
   return best;
