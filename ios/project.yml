@@ -1,0 +1,46 @@
+# 심해 다이버 iOS 래퍼 — XcodeGen 프로젝트 정의.
+# Info.plist는 별도 파일 없이 여기 info 섹션으로 관리한다(이 머신의 관례).
+# 웹 번들(../index.html, ../*.js)은 postCompileScripts에서 .app/web/ 으로 복사된다.
+name: DeepDiver
+options:
+  bundleIdPrefix: com.avabag
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  DeepDiver:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.avabag.deepdiver
+        PRODUCT_NAME: 심해다이버
+        DEVELOPMENT_TEAM: CKQ36XZ229
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+        INFOPLIST_KEY_CFBundleDisplayName: 심해 다이버
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: 심해 다이버
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UIRequiresFullScreen: true
+        ITSAppUsesNonExemptEncryption: false
+    postCompileScripts:
+      - name: Copy Web Bundle
+        script: |
+          # 웹 게임 파일을 앱 번들 web/ 폴더로 복사 (serve.py 등 개발 파일 제외)
+          APP_WEB="${BUILT_PRODUCTS_DIR}/${FULL_PRODUCT_NAME}/web"
+          rm -rf "${APP_WEB}"
+          mkdir -p "${APP_WEB}"
+          cp "${SRCROOT}/../index.html" "${APP_WEB}/"
+          cp "${SRCROOT}"/../*.js "${APP_WEB}/"
+        basedOnDependencyAnalysis: false

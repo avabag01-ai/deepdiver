@@ -62,6 +62,12 @@ const FLEE_RADIUS = 85;
 const BIG_BUBBLE_SPECIES = new Set(['orca', 'reefshark', 'seaturtle', 'deepoctopus', 'giantisopod']);
 const MAX_BUBBLES = 30;
 
+// 네이티브 햅틱 브리지 — iOS 래퍼(WKWebView)에서만 동작, 브라우저에선 무해한 no-op.
+// kind: 'hit'(피격, heavy) | 'pickup'(아이템, light) | 'success'(발견/클리어, notification)
+function haptic(kind) {
+  try { window.webkit?.messageHandlers?.haptic?.postMessage(kind); } catch (e) { /* 브라우저 */ }
+}
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
@@ -128,6 +134,7 @@ function recordObservation(sp) {
   pearlBalance += 5; // 첫 발견 보너스
   savePearls(pearlBalance);
   sound.playPearl();
+  haptic('success');
   showToast(`📖 새로운 종 발견! ${sp.name} (+5🦪)`);
   // 구역 완성 체크
   const zoneSpecies = speciesInZone(sp.zone);
@@ -708,6 +715,7 @@ function endGame() {
 function clearLevel() {
   state.cleared = true;
   state.running = false;
+  haptic('success');
   sound.playLevelClearFanfare();
   sound.stopAmbience();
   bankRunPearls();
@@ -745,6 +753,7 @@ function damagePlayer() {
   if (state.over || state.cleared) return;
   if (state.timeSec < state.invulnUntil) return; // 무적 시간 중이면 무시
   sound.playHit();
+  haptic('hit');
   state.health -= 1;
   state.invulnUntil = state.timeSec + invulnDuration();
   state.shakeUntil = state.timeSec + SHAKE_DURATION;
@@ -1002,6 +1011,7 @@ function update(dtSecRaw) {
     const dy = it.y - player.y;
     if (!state.over && dx * dx + dy * dy < (r + pr) * (r + pr)) {
       const def = ITEM_TYPES[it.type];
+      haptic(def.kind === 'levelGoal' ? 'success' : 'pickup');
       if (def.kind === 'heal') {
         healPlayer();
         sound.playPotion();
