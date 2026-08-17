@@ -156,7 +156,12 @@ function promontoryNoise(localY, seed) {
 // 함수를 쓰므로 "보이는 실루엣"과 "부딪히는 경계"가 항상 일치한다.
 // 클램프는 절대 상/하한에서만 아주 드물게 걸리도록 정규화 후 매핑한다
 // (성분별 과대 증폭→클램프는 평평한 구간을 만들었던 전력이 있음).
-export function wallThickness(localY, seed, jitterAmp = 0) {
+// 조각 양 끝(상/하단)에서 두께를 얇은 꼬리로 수렴시키는 테이퍼 구간 길이.
+// 이게 없으면 벽이 화면에 등장/퇴장할 때 수평으로 뚝 잘린 단면이 보인다.
+const TAPER_LEN = 150;
+const WALL_TIP_W = 6; // 끝부분이 수렴하는 최소 두께 (능선이 벽면으로 소멸하는 꼬리)
+
+export function wallThickness(localY, seed, jitterAmp = 0, height = null) {
   // 굴곡 보장 성분: 주기 ~360px 사인파 — 순수 노이즈만 쓰면 격자값이 우연히
   // 비슷할 때 수백 px가 평평해지는 구간이 생긴다(수치 검증에서 실제 확인).
   // 위상을 시드로 돌리고 느린 노이즈로 위상 변조해 기계적 반복으로는 안 보이게 한다.
@@ -166,11 +171,21 @@ export function wallThickness(localY, seed, jitterAmp = 0) {
   const n = (valueNoise1D(localY, seed + 500.1, 170)
     + valueNoise1D(localY, seed + 700.7, 80) * 0.5) / 1.5; // 대략 [-1, 1]
   // 하드 클램프 대신 합의 최대치로 나눠 정규화 — 클램프 경계에 눌러붙는 평평함 방지
-  const mix = (s * 0.78 + n * 0.48) / 1.26;
+  const mix = (s * 0.85 + n * 0.45) / 1.3;
   let w = WALL_MIN_W + (mix * 0.5 + 0.5) * (WALL_BASE_MAX_W - WALL_MIN_W);
   w += valueNoise1D(localY, seed + 133.1, 22) * (jitterAmp || 1) * 0.55; // 미세 요철
   w += promontoryNoise(localY, seed) * CANVAS_W * 0.10; // 곶/만 (±최대 화면폭 20%)
-  return clamp(w, WALL_ABS_MIN_W, WALL_CAP_W);
+  w = clamp(w, WALL_ABS_MIN_W, WALL_CAP_W);
+  // 상/하단 테이퍼: 능선이 완만하게 낮아지다 벽면으로 소멸 — "잘린 단면" 제거
+  if (height != null) {
+    const edgeDist = Math.min(localY, height - localY);
+    if (edgeDist < TAPER_LEN) {
+      const k = clamp(edgeDist / TAPER_LEN, 0, 1);
+      const ease = k * k * (3 - 2 * k); // smoothstep
+      w = WALL_TIP_W + (w - WALL_TIP_W) * ease;
+    }
+  }
+  return w;
 }
 
 // chunk: {x,y,width,height,seed,side} — 로컬 좌표로 구울 때는 x=0,y=0인 사본을 넘긴다.
@@ -185,7 +200,7 @@ function buildWallPath(ctx, chunk, sampleStep, jitterAmp = 0) {
   ctx.beginPath();
   ctx.moveTo(outerX, y);
   const capSteps = 3;
-  const topEdge = outerX + dir * wallThickness(0, seed, jitterAmp);
+  const topEdge = outerX + dir * wallThickness(0, seed, jitterAmp, height);
   for (let i = 1; i <= capSteps; i++) {
     const cx = outerX + (topEdge - outerX) * (i / capSteps);
     const cy = y + (hash2(seed + i * 2.3, 401) - 0.5) * capJit * 2.4;
@@ -194,9 +209,9 @@ function buildWallPath(ctx, chunk, sampleStep, jitterAmp = 0) {
   const steps = Math.max(4, Math.round(height / sampleStep));
   for (let i = 1; i <= steps; i++) {
     const localY = (height * i) / steps; // 조각 기준 상대 위치 — chunk.y와 무관, 스크롤해도 고정된 모양 유지
-    ctx.lineTo(outerX + dir * wallThickness(localY, seed, jitterAmp), y + localY);
+    ctx.lineTo(outerX + dir * wallThickness(localY, seed, jitterAmp, height), y + localY);
   }
-  const botEdge = outerX + dir * wallThickness(height, seed, jitterAmp);
+  const botEdge = outerX + dir * wallThickness(height, seed, jitterAmp, height);
   for (let i = 1; i <= capSteps; i++) {
     const cx = botEdge + (outerX - botEdge) * (i / capSteps);
     const cy = y + height + (hash2(seed + i * 3.7, 402) - 0.5) * capJit * 2.4;
@@ -344,8 +359,8 @@ function bakeRock(chunk, zoneId) {
   const sampleStep = isFg ? 15 : 46;
   const jitter = isFg ? FG_JITTER[zoneId] : 1.4;
   // 실루엣의 실제 통로쪽 가장자리 x (y마다 다름) — 모든 표면 디테일/장식의 기준선
-  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
-  const thickAt = (yy) => wallThickness(yy, seed, jitter);
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter, height);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter, height);
 
   // 방향성 광원 다단 그라디언트 (바깥쪽이 밝고 안쪽 통로가 어둡게 — 단일 플랫 대신)
   const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
@@ -468,8 +483,8 @@ function bakeCoral(chunk) {
 
   const sampleStep = isFg ? 24 : 42;
   const jitter = isFg ? FG_JITTER.shallow : 0.8; // 산호는 암석보다 매끈-유기적이므로 지터는 절제
-  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
-  const thickAt = (yy) => wallThickness(yy, seed, jitter);
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter, height);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter, height);
 
   const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
   grad.addColorStop(0, lerpColor(style.fg, '#ffffff', isFg ? 0.3 : 0.12));
@@ -564,8 +579,8 @@ function bakeVentBody(chunk) {
 
   const sampleStep = isFg ? 17 : 48;
   const jitter = isFg ? FG_JITTER.vent : 1.2;
-  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
-  const thickAt = (yy) => wallThickness(yy, seed, jitter);
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter, height);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter, height);
 
   const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
   grad.addColorStop(0, lerpColor(style.fg, '#ff9d5c', isFg ? 0.12 : 0.05));
@@ -647,7 +662,7 @@ function drawVentAnimated(ctx, chunk, timeSec) {
     const localY = 60 + i * 220 + Math.sin(seed + i * 2) * 20;
     const vy = y + localY;
     // 분출구는 실루엣의 실제 가장자리를 따라가야 함 (명목폭 기준이면 곶/만에서 어긋남)
-    const vx = outerX + dir * (wallThickness(localY, seed, FG_JITTER.vent) - 6);
+    const vx = outerX + dir * (wallThickness(localY, seed, FG_JITTER.vent, height) - 6);
     glow(ctx, vx, vy, 34, style.accent, 0.45);
     stairStack(ctx, 6, 0.06, (k) => {
       const rise = (k + 1) * 12 + Math.sin(timeSec * 0.5 + seed + i + k) * 4;
@@ -729,7 +744,7 @@ export function collidesWithTerrain(chunk, px, py, radius) {
   if (py + radius < chunk.y || py - radius > chunk.y + chunk.height) return false;
   const localY = clamp(py - chunk.y, 0, chunk.height);
   const jitter = FG_JITTER[chunk.zoneId] ?? 6;
-  const t = wallThickness(localY, chunk.seed, jitter);
+  const t = wallThickness(localY, chunk.seed, jitter, chunk.height);
   if (chunk.side === 'left') return px - radius < t;
   return px + radius > CANVAS_W - t;
 }
