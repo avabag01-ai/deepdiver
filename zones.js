@@ -99,7 +99,7 @@ export function drawBackground(ctx, depth, timeSec) {
   // L1: 빛줄기 (수면에서 내려오는 사선 광선)
   const rayStrength = zone.rayStrength * (1 - t) + next.rayStrength * t;
   if (rayStrength > 0.01) {
-    drawLightRays(ctx, rayStrength, zone.rayColor, timeSec);
+    drawLightRays(ctx, rayStrength, zone.rayColor, timeSec, depth);
   }
 
   // L2: 부유 입자 (미세 플랑크톤 느낌) — 얇은 점들
@@ -108,40 +108,54 @@ export function drawBackground(ctx, depth, timeSec) {
   // L3: 뎁스베일은 생물 위에 별도로 그림 (drawDepthVeil, game.js에서 생물 렌더 후 호출)
 }
 
-function drawLightRays(ctx, strength, color, timeSec) {
-  // 밴딩 방지: 한 점(수면 위 소실점)으로 수렴하는 마름모형 광선을
-  // 얇은 알파(0.05 내외)로 여러 장 계단식으로 겹쳐 그린다.
+function drawLightRays(ctx, strength, color, timeSec, depth = 0) {
+  // 부드러운 갓레이: 광선마다 세로 방향 선형 그라디언트(소실점 쪽 최대 → 도달
+  // 한계에서 0)로 채워 아래로 갈수록 자연스럽게 사라지고, 폭이 다른 삼각형
+  // 3장을 겹쳐 가장자리를 페더링한다(딱 떨어지는 경계선 제거). 전체 알파도
+  // 이전(중심부 합산 0.45)보다 훨씬 낮게(중심부 ~0.13) 억제.
   const vanishX = CANVAS_W * 0.5 + Math.sin(timeSec * 0.05) * 30;
   const vanishY = -80;
+  // 깊이에 따른 도달 거리 감쇠: 표층에선 화면 거의 끝까지, 트와일라잇에선
+  // 화면 하단 절반이 사실상 광선 없는 어둠이 되게 상단만 비춘다.
+  const depthT = clamp((depth - 20) / 500, 0, 1);
+  const reachY = CANVAS_H * (0.98 - depthT * 0.58);
+  // 폭/간격/기울기/세기가 제각각인 비균등 광선 셋 (기계적 반복감 제거)
   const rayDefs = [
-    { angle: -0.35, width: 46, len: 720 },
-    { angle: -0.12, width: 34, len: 780 },
-    { angle: 0.08, width: 40, len: 760 },
-    { angle: 0.30, width: 50, len: 700 },
+    { angle: -0.42, width: 24, sway: 1.3, mul: 0.7 },
+    { angle: -0.17, width: 46, sway: 0.7, mul: 1.1 },
+    { angle: 0.04, width: 28, sway: 1.05, mul: 0.8 },
+    { angle: 0.22, width: 54, sway: 0.85, mul: 1.0 },
+    { angle: 0.39, width: 32, sway: 1.2, mul: 0.65 },
   ];
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
+  const len = 900;
   for (const ray of rayDefs) {
-    const baseAngle = Math.PI / 2 + ray.angle + Math.sin(timeSec * 0.08 + ray.angle * 3) * 0.02;
-    const farX = vanishX + Math.cos(baseAngle) * ray.len;
-    const farY = vanishY + Math.sin(baseAngle) * ray.len;
-    const nx = -Math.sin(baseAngle); // 폭 방향 법선
-    const ny = Math.cos(baseAngle);
+    const baseAngle = Math.PI / 2 + ray.angle
+      + Math.sin(timeSec * 0.06 * ray.sway + ray.angle * 5) * 0.025;
+    const dx = Math.cos(baseAngle), dy = Math.sin(baseAngle);
+    const nx = -dy, ny = dx;
 
-    stairStack(ctx, 10, 0.045 * strength, (i, count) => {
-      const growth = (i + 1) / count;
-      const w = ray.width * growth;
-      const fx = vanishX + (farX - vanishX) * growth;
-      const fy = vanishY + (farY - vanishY) * growth;
-      ctx.fillStyle = color;
+    // 세로 페이드: 소실점 근처가 가장 밝고 reachY에서 완전히 사라짐
+    const a = 0.05 * strength * ray.mul;
+    const grad = ctx.createLinearGradient(vanishX, vanishY, vanishX + dx * ((reachY - vanishY) / dy), reachY);
+    grad.addColorStop(0, rgba(color, a));
+    grad.addColorStop(0.5, rgba(color, a * 0.55));
+    grad.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = grad;
+
+    // 가장자리 페더: 폭이 다른 삼각형 3장 겹침 — 바깥 가장자리는 1겹(옅음),
+    // 중심부는 3겹이 합산돼 부드러운 단면 프로파일이 된다
+    for (const wf of [1, 0.6, 0.3]) {
+      const w = ray.width * wf;
       ctx.beginPath();
       ctx.moveTo(vanishX, vanishY);
-      ctx.lineTo(fx + nx * w, fy + ny * w);
-      ctx.lineTo(fx - nx * w, fy - ny * w);
+      ctx.lineTo(vanishX + dx * len + nx * w, vanishY + dy * len + ny * w);
+      ctx.lineTo(vanishX + dx * len - nx * w, vanishY + dy * len - ny * w);
       ctx.closePath();
       ctx.fill();
-    });
+    }
   }
   ctx.restore();
 }
