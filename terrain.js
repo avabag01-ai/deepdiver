@@ -1,6 +1,7 @@
 // terrain.js — 구역별 지형(원경/근경 2계층)
-// 근경(전경) 지형은 충돌이 있고 폭 최대 화면의 40%, 좌우 벽에 붙어 번갈아 배치되어
-// 항상 통로가 확보된다. 원경(배경)은 충돌 없이 장식용으로만 스크롤된다.
+// 근경(전경) 지형은 충돌이 있고, 벽 두께는 화면폭의 10%~35%(곶 포함 최대 45%)를
+// 화면 안에서 1.5~2회 굴곡이 보이는 주기로 크게 출렁인다. 좌우 벽에 붙어 번갈아
+// 배치되어 항상 통로가 확보된다. 원경(배경)은 충돌 없이 장식용으로만 스크롤된다.
 //
 // 텍스처 캐싱: 절차적 표면 텍스처(균열/얼룩/이끼/지터 외곽선)는 조각이 스폰될 때
 // 딱 한 번 오프스크린 캔버스에 구워서 chunk.tex에 저장해두고, 매 프레임에는
@@ -8,8 +9,19 @@
 
 import { CANVAS_W, CANVAS_H, INK, STROKE, shade, hilite, rgba, glow, stairStack, hash2, lerpColor, clamp } from './utils.js';
 
-const FG_MAX_WIDTH_RATIO = 0.3;
-const FG_MAX_WIDTH = CANVAS_W * FG_MAX_WIDTH_RATIO;
+// 벽 두께(화면 가장자리→통로쪽 실루엣까지)의 설계 범위 — 전부 화면폭 기준 비율.
+// 기저 두께가 min~baseMax 사이를 화면 안에서 1.5~2회 굴곡이 보이는 주기로 크게
+// 출렁이고, 곶(promontory)이 겹칠 때만 capW까지 허용한다. 이전 구현은 두께가
+// WALL_PAD(오프스크린 캔버스 여백)를 넘으면 캔버스 경계에서 잘려 "완전 수직
+// 직선"이 생기는 치명적 버그가 있었다 — 두께 상한(capW) ≤ 명목폭+WALL_PAD 를
+// 항상 보장해서 재발을 막는다.
+const WALL_MIN_W = CANVAS_W * 0.10;      // 가장 얇은 기저 두께 (34px)
+const WALL_BASE_MAX_W = CANVAS_W * 0.35; // 기저 두께 상한 (119px)
+const WALL_CAP_W = CANVAS_W * 0.45;      // 곶 포함 절대 상한 (153px)
+const WALL_ABS_MIN_W = CANVAS_W * 0.07;  // 만(cove) 포함 절대 하한
+
+// 구역별 미세 요철 강도 (bake와 충돌 판정이 반드시 같은 값을 써야 실루엣과 판정이 일치)
+const FG_JITTER = { shallow: 2.2, twilight: 8.5, deepsea: 8.5, vent: 7.2 };
 
 // 지형은 짧은 덩어리가 아니라 벽처럼 세로로 길게 이어진 형태여야 한다
 // (화면 세로 길이의 1.5~3배)
@@ -41,7 +53,8 @@ const WALL_PAD = 90;
 // spawnY는 조각의 "위쪽(top)" 기준. 조각은 화면 아래에서 나타나 위로 흘러가므로
 // 항상 화면 바닥 부근에서 스폰되고, 세로로 길게(화면의 1.5~3배) 뻗어 벽처럼 보인다.
 export function createTerrainChunk(zoneId, side, spawnY) {
-  const width = FG_MAX_WIDTH * (0.65 + Math.random() * 0.35);
+  // 명목폭은 기저 두께 상한과 일치 — 실제 실루엣 두께는 wallThickness()가 y마다 결정
+  const width = WALL_BASE_MAX_W;
   const height = FG_HEIGHT_MIN + Math.random() * (FG_HEIGHT_MAX - FG_HEIGHT_MIN);
   const chunk = {
     zoneId,
@@ -116,27 +129,15 @@ function valueNoise1D(x, seed, gridSize) {
 }
 
 // ---------------------------------------------------------------------------
-// 벽 실루엣 폭 결정 로직 — 3단 구조.
-// 이전 버전은 좁은 고정폭(amp) 주변에서만 노이즈가 진동해 "기둥에 털 난" 모양이
-// 되는 문제가 있었다. 이번엔 벽의 "기저 폭 자체"가 조각 안에서 크게(30~150px대)
-// 출렁이는 저주파 곡선을 먼저 깔고, 그 위에 중간 굴곡+미세 디테일+곶/만을 얹는다.
+// 벽 실루엣 두께 결정 로직 — "화면 가장자리로부터의 두께"를 직접 계산한다.
+// (이전엔 조각 명목폭 + 노이즈폭이 합산되는 구조라 폭이 과대해지고, 캔버스 여백을
+// 넘는 순간 잘려서 수직 직선이 생겼다.)
+//
+// 주기 설계: 격자 170px 노이즈는 봉우리→골짜기 간격이 약 170px이라 화면(600px)에
+// 굴곡이 1.5~2회 이상 보인다. 진폭은 기저 두께가 화면폭 10%~35%를 오가는 수준.
 
-// 1단: 매우 저주파의 큰 진폭 곡선 — 벽 폭 자체가 페이지를 내려가며 크게 출렁임
-function baseWidthEnvelope(localY, seed) {
-  const w1 = valueNoise1D(localY, seed + 500.1, 260);
-  const w2 = valueNoise1D(localY, seed + 700.7, 128);
-  return w1 * 1.0 + w2 * 0.55; // 대략 [-1.55, 1.55]
-}
-
-// 2단: 중간 굴곡 + 미세 디테일 (기존 프랙탈 능선, 진폭은 1단보다 작게)
-function ridgeNoise(localY, seed) {
-  const mid = valueNoise1D(localY, seed + 47.3, 54);
-  const fine = valueNoise1D(localY, seed + 133.1, 17);
-  return mid * 0.6 + fine * 0.3; // 대략 [-0.9, 0.9]
-}
-
-// 3단: 낮은 확률로 통로 쪽으로 크게 튀어나온 뾰족한 곶(promontory), 또는 깊게
-// 파인 만(cove)을 섞는다 — 실제 해저 절벽 단면처럼 급격한 굴곡을 만드는 핵심.
+// 낮은 확률로 통로 쪽으로 크게 튀어나온 뾰족한 곶(promontory), 또는 깊게
+// 파인 만(cove) — 실제 해저 절벽 단면처럼 급격한 굴곡을 만드는 핵심.
 function promontoryNoise(localY, seed) {
   const cellSize = 230;
   const cell = Math.floor(localY / cellSize);
@@ -151,52 +152,53 @@ function promontoryNoise(localY, seed) {
   return shape * shape * sign * magnitude;
 }
 
-// 폭 계산은 세 노이즈를 정규화된 가중치로 합성한 뒤 한 번에 mid±swing 범위로 매핑한다
-// (성분별로 각각 크게 부풀려 더했다가 클램프하면, 클램프 상한/하한에 오래 눌러붙는
-// "평평한 구간"이 생겨 오히려 다시 기둥처럼 보인다 — 실제로 이 버그가 있었음).
-// 수치 검증: 여러 시드에 걸쳐 1px 단위로 샘플링했을 때 변화량이 거의 없는(평평한)
-// 구간이 150px(화면 높이 1/4) 이상 나오지 않는지 확인 완료.
-function innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp) {
-  const roughness = jitterAmp || 1;
-  const roughnessScale = clamp(roughness / 6, 0.45, 1);
-  const base = baseWidthEnvelope(localY, seed);
-  const ridge = ridgeNoise(localY, seed) * roughnessScale;
-  const promontory = promontoryNoise(localY, seed) * roughnessScale;
-  const composite = base * 0.5 + ridge * 0.38 + promontory * 0.55;
-  const midWidth = amp * 3.4;   // 벽의 평균적인 폭
-  const swingRange = amp * 2.7; // 그 위에 출렁이는 폭의 크기
-  const fineDetail = jitterAmp ? (hash2(Math.round(localY * 0.5), seed + 19.4) - 0.5) * 2 * jitterAmp * 0.4 : 0;
-  const width = clamp(midWidth + composite * swingRange + fineDetail, 8, amp * 7.5);
-  return innerX + dir * width;
+// localY에서의 벽 두께(px, 화면 가장자리 기준). bake와 충돌 판정 양쪽에서 같은
+// 함수를 쓰므로 "보이는 실루엣"과 "부딪히는 경계"가 항상 일치한다.
+// 클램프는 절대 상/하한에서만 아주 드물게 걸리도록 정규화 후 매핑한다
+// (성분별 과대 증폭→클램프는 평평한 구간을 만들었던 전력이 있음).
+export function wallThickness(localY, seed, jitterAmp = 0) {
+  // 굴곡 보장 성분: 주기 ~360px 사인파 — 순수 노이즈만 쓰면 격자값이 우연히
+  // 비슷할 때 수백 px가 평평해지는 구간이 생긴다(수치 검증에서 실제 확인).
+  // 위상을 시드로 돌리고 느린 노이즈로 위상 변조해 기계적 반복으로는 안 보이게 한다.
+  const phase = hash2(1, seed + 3.3) * Math.PI * 2
+    + valueNoise1D(localY, seed + 55.5, 300) * 0.6;
+  const s = Math.sin(localY * (Math.PI * 2 / 320) + phase);
+  const n = (valueNoise1D(localY, seed + 500.1, 170)
+    + valueNoise1D(localY, seed + 700.7, 80) * 0.5) / 1.5; // 대략 [-1, 1]
+  // 하드 클램프 대신 합의 최대치로 나눠 정규화 — 클램프 경계에 눌러붙는 평평함 방지
+  const mix = (s * 0.78 + n * 0.48) / 1.26;
+  let w = WALL_MIN_W + (mix * 0.5 + 0.5) * (WALL_BASE_MAX_W - WALL_MIN_W);
+  w += valueNoise1D(localY, seed + 133.1, 22) * (jitterAmp || 1) * 0.55; // 미세 요철
+  w += promontoryNoise(localY, seed) * CANVAS_W * 0.10; // 곶/만 (±최대 화면폭 20%)
+  return clamp(w, WALL_ABS_MIN_W, WALL_CAP_W);
 }
 
 // chunk: {x,y,width,height,seed,side} — 로컬 좌표로 구울 때는 x=0,y=0인 사본을 넘긴다.
 // 위/아래 캡(조각의 시작/끝 가로선)도 일직선 대신 잘게 꺾어서, 조각이 이어지거나
 // 스폰/소멸하는 지점이 "딱 떨어지는 사각형"처럼 보이지 않게 한다.
-function buildWallPath(ctx, chunk, amp, freq, sampleStep, jitterAmp = 0) {
+function buildWallPath(ctx, chunk, sampleStep, jitterAmp = 0) {
   const { x, y, width, height, seed, side } = chunk;
   const dir = side === 'left' ? 1 : -1;
-  const innerX = side === 'left' ? x + width : x; // 통로에 접한 안쪽 경계
-  const outerX = side === 'left' ? x : x + width;  // 화면 벽에 붙은 바깥 경계
+  const outerX = side === 'left' ? x : x + width; // 화면 벽에 붙은 바깥 경계
   const capJit = jitterAmp || 2;
 
   ctx.beginPath();
   ctx.moveTo(outerX, y);
   const capSteps = 3;
+  const topEdge = outerX + dir * wallThickness(0, seed, jitterAmp);
   for (let i = 1; i <= capSteps; i++) {
-    const cx = outerX + dir * (width * (i / capSteps));
+    const cx = outerX + (topEdge - outerX) * (i / capSteps);
     const cy = y + (hash2(seed + i * 2.3, 401) - 0.5) * capJit * 2.4;
     ctx.lineTo(cx, cy);
   }
   const steps = Math.max(4, Math.round(height / sampleStep));
   for (let i = 1; i <= steps; i++) {
     const localY = (height * i) / steps; // 조각 기준 상대 위치 — chunk.y와 무관, 스크롤해도 고정된 모양 유지
-    const sy = y + localY;
-    const sx = innerEdgeX(innerX, dir, localY, seed, amp, freq, jitterAmp);
-    ctx.lineTo(sx, sy);
+    ctx.lineTo(outerX + dir * wallThickness(localY, seed, jitterAmp), y + localY);
   }
+  const botEdge = outerX + dir * wallThickness(height, seed, jitterAmp);
   for (let i = 1; i <= capSteps; i++) {
-    const cx = innerX - dir * (width * (i / capSteps));
+    const cx = botEdge + (outerX - botEdge) * (i / capSteps);
     const cy = y + height + (hash2(seed + i * 3.7, 402) - 0.5) * capJit * 2.4;
     ctx.lineTo(cx, cy);
   }
@@ -336,21 +338,24 @@ function bakeRock(chunk, zoneId) {
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
-  const innerX = side === 'left' ? width : 0;
   const dir = side === 'left' ? 1 : -1;
+  const outerX = side === 'left' ? 0 : width;
+
+  const sampleStep = isFg ? 15 : 46;
+  const jitter = isFg ? FG_JITTER[zoneId] : 1.4;
+  // 실루엣의 실제 통로쪽 가장자리 x (y마다 다름) — 모든 표면 디테일/장식의 기준선
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter);
 
   // 방향성 광원 다단 그라디언트 (바깥쪽이 밝고 안쪽 통로가 어둡게 — 단일 플랫 대신)
-  const outerX = side === 'left' ? 0 : width;
-  const grad = tctx.createLinearGradient(outerX, 0, innerX, 0);
+  const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
   grad.addColorStop(0, lerpColor(style.fg, '#ffffff', isFg ? 0.16 : 0.08));
   grad.addColorStop(0.55, style.fg);
   grad.addColorStop(1, lerpColor(style.fg, '#000000', isFg ? 0.26 : 0.14));
   tctx.fillStyle = isFg ? grad : style.bg;
   if (isFg) { tctx.strokeStyle = INK; tctx.lineWidth = STROKE.silhouette; }
 
-  const sampleStep = isFg ? 15 : 46;
-  const jitter = isFg ? 8.5 : 1.4;
-  buildWallPath(tctx, local, 22, 0.014, sampleStep, jitter);
+  buildWallPath(tctx, local, sampleStep, jitter);
   tctx.fill();
   if (isFg) tctx.stroke();
 
@@ -360,7 +365,7 @@ function bakeRock(chunk, zoneId) {
     tctx.fillStyle = bshade;
     for (let i = 0; i < 3; i++) {
       const py = hash2(seed, i * 2 + 1) * height;
-      const px = innerX - dir * (10 + hash2(seed + 5, i) * width * 0.5);
+      const px = edgeAt(py) - dir * (10 + hash2(seed + 5, i) * thickAt(py) * 0.5);
       blob(tctx, px, py, 28 + hash2(seed + 9, i) * 18, seed + i * 11);
       tctx.fill();
     }
@@ -368,13 +373,13 @@ function bakeRock(chunk, zoneId) {
   }
 
   // 안쪽 가장자리 그림자
-  shade(tctx, () => buildWallPath(tctx, local, 22, 0.014, sampleStep, jitter), 0.2);
+  shade(tctx, () => buildWallPath(tctx, local, sampleStep, jitter), 0.2);
 
   // 다중 톤 명암 얼룩 (표면 거칠기 — 결정적 노이즈로 흩뿌린 밝은/어두운 다각형 패치)
   const patchCount = Math.max(10, Math.round(height / 24));
   for (let i = 0; i < patchCount; i++) {
     const py = hash2(seed, i) * height;
-    const px = innerX - dir * (6 + hash2(seed + 7, i) * (width * 0.62));
+    const px = edgeAt(py) - dir * (6 + hash2(seed + 7, i) * (thickAt(py) * 0.62));
     const r = 4 + hash2(seed + 13, i) * 8;
     const dark = hash2(seed + 19, i) > 0.42;
     tctx.fillStyle = dark ? rgba(INK, 0.2 + hash2(seed + 23, i) * 0.14) : 'rgba(255,255,255,0.13)';
@@ -388,8 +393,8 @@ function bakeRock(chunk, zoneId) {
   tctx.lineWidth = STROKE.detail;
   tctx.lineJoin = 'round'; tctx.lineCap = 'round';
   for (let i = 0; i < crackCount; i++) {
-    let cx = innerX - dir * hash2(seed + 31, i) * width * 0.35;
     let cy = 16 + hash2(seed + 37, i) * (height - 32);
+    let cx = edgeAt(cy) - dir * (4 + hash2(seed + 31, i) * thickAt(cy) * 0.3);
     tctx.beginPath();
     tctx.moveTo(cx, cy);
     const segs = 3 + Math.floor(hash2(seed + 41, i) * 3);
@@ -405,7 +410,7 @@ function bakeRock(chunk, zoneId) {
   const mossCount = Math.max(5, Math.round(height / 72));
   for (let i = 0; i < mossCount; i++) {
     const my = hash2(seed + 51, i) * height;
-    const mx = innerX - dir * (4 + hash2(seed + 57, i) * width * 0.55);
+    const mx = edgeAt(my) - dir * (4 + hash2(seed + 57, i) * thickAt(my) * 0.55);
     const mr = 5 + hash2(seed + 61, i) * 6.5;
     const mossColor = hash2(seed + 63, i) > 0.5 ? 'rgba(98,132,56,0.36)' : 'rgba(88,66,38,0.32)';
     tctx.fillStyle = mossColor;
@@ -419,7 +424,7 @@ function bakeRock(chunk, zoneId) {
   const wearCount = Math.max(4, Math.round(height / 130));
   for (let i = 0; i < wearCount; i++) {
     const wy = 10 + hash2(seed + 71, i) * (height - 20);
-    const wx = innerX - dir * 1.5;
+    const wx = edgeAt(wy) - dir * 1.5;
     tctx.beginPath();
     tctx.moveTo(wx, wy);
     tctx.lineTo(wx - dir * (8 + hash2(seed + 75, i) * 8), wy + 6 + hash2(seed + 77, i) * 6);
@@ -431,7 +436,7 @@ function bakeRock(chunk, zoneId) {
   const decorCount = Math.max(4, Math.round(height / 150));
   for (let i = 0; i < decorCount; i++) {
     const dy = 40 + hash2(seed + 141, i) * (height - 80);
-    const dx = innerX - dir * (2 + hash2(seed + 143, i) * 5);
+    const dx = edgeAt(dy) - dir * (2 + hash2(seed + 143, i) * 5);
     const kind = hash2(seed + 145, i);
     const dscale = 0.75 + hash2(seed + 147, i) * 0.4;
     if (kind < 0.38) {
@@ -458,40 +463,43 @@ function bakeCoral(chunk) {
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
-  const innerX = side === 'left' ? width : 0;
   const outerX = side === 'left' ? 0 : width;
   const dir = side === 'left' ? 1 : -1;
 
-  const grad = tctx.createLinearGradient(outerX, 0, innerX, 0);
+  const sampleStep = isFg ? 24 : 42;
+  const jitter = isFg ? FG_JITTER.shallow : 0.8; // 산호는 암석보다 매끈-유기적이므로 지터는 절제
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter);
+
+  const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
   grad.addColorStop(0, lerpColor(style.fg, '#ffffff', isFg ? 0.3 : 0.12));
   grad.addColorStop(0.6, style.fg);
   grad.addColorStop(1, lerpColor(style.fg, '#000000', isFg ? 0.22 : 0.1));
   tctx.fillStyle = isFg ? grad : style.bg;
   if (isFg) { tctx.strokeStyle = INK; tctx.lineWidth = STROKE.silhouette; }
 
-  const sampleStep = isFg ? 24 : 42;
-  const jitter = isFg ? 2.2 : 0.8; // 산호는 암석보다 매끈-유기적이므로 지터는 절제
-  buildWallPath(tctx, local, 26, 0.02, sampleStep, jitter);
+  buildWallPath(tctx, local, sampleStep, jitter);
   tctx.fill();
   if (isFg) tctx.stroke();
 
   if (!isFg) return cnv; // 원경은 실루엣만, 저비용
 
-  shade(tctx, () => buildWallPath(tctx, local, 26, 0.02, sampleStep, jitter), 0.14);
+  shade(tctx, () => buildWallPath(tctx, local, sampleStep, jitter), 0.14);
 
   // 가지 형태 돌출 (유기적 산호 가지)
   const branchCount = Math.max(3, Math.round(height / 100));
   for (let i = 0; i < branchCount; i++) {
     const by = 26 + hash2(seed + 81, i) * (height - 52);
+    const bx = edgeAt(by);
     const blen = 13 + hash2(seed + 83, i) * 15;
     const bend = (hash2(seed + 85, i) - 0.5) * 12;
     tctx.strokeStyle = INK; tctx.lineWidth = STROKE.part;
     tctx.fillStyle = lerpColor(style.fg, '#ffffff', 0.18);
     tctx.beginPath();
-    tctx.moveTo(innerX, by - 3);
-    tctx.quadraticCurveTo(innerX - dir * blen * 0.6 + bend, by - blen * 0.5, innerX - dir * blen + bend, by - blen);
-    tctx.lineTo(innerX - dir * blen * 0.75 + bend, by - blen + 4.5);
-    tctx.quadraticCurveTo(innerX - dir * blen * 0.5 + bend, by - blen * 0.35, innerX, by + 4);
+    tctx.moveTo(bx, by - 3);
+    tctx.quadraticCurveTo(bx - dir * blen * 0.6 + bend, by - blen * 0.5, bx - dir * blen + bend, by - blen);
+    tctx.lineTo(bx - dir * blen * 0.75 + bend, by - blen + 4.5);
+    tctx.quadraticCurveTo(bx - dir * blen * 0.5 + bend, by - blen * 0.35, bx, by + 4);
     tctx.closePath();
     tctx.fill(); tctx.stroke();
   }
@@ -501,7 +509,7 @@ function bakeCoral(chunk) {
   const count = Math.max(3, Math.round(height / 90));
   for (let i = 0; i < count; i++) {
     const py = 30 + i * 90 + Math.sin(seed + i) * 12;
-    const px = innerX - dir * (14 + Math.sin(seed * 2 + i) * 8);
+    const px = edgeAt(py) - dir * (14 + Math.sin(seed * 2 + i) * 8);
     tctx.beginPath(); tctx.arc(px, py, 4, 0, Math.PI * 2); tctx.fill();
     tctx.strokeStyle = INK; tctx.lineWidth = STROKE.detail; tctx.stroke();
   }
@@ -510,7 +518,7 @@ function bakeCoral(chunk) {
   const clusters = Math.max(5, Math.round(height / 55));
   for (let c = 0; c < clusters; c++) {
     const cy = hash2(seed + 91, c) * height;
-    const cx = innerX - dir * (8 + hash2(seed + 93, c) * width * 0.55);
+    const cx = edgeAt(cy) - dir * (8 + hash2(seed + 93, c) * thickAt(cy) * 0.55);
     for (let d = 0; d < 9; d++) {
       const ang = hash2(seed + 95, c * 20 + d) * Math.PI * 2;
       const rr = hash2(seed + 97, c * 20 + d + 1) * 9;
@@ -528,7 +536,7 @@ function bakeCoral(chunk) {
   const decorCount = Math.max(3, Math.round(height / 160));
   for (let i = 0; i < decorCount; i++) {
     const dy = 36 + hash2(seed + 161, i) * (height - 72);
-    const dx = innerX - dir * (3 + hash2(seed + 163, i) * 6);
+    const dx = edgeAt(dy) - dir * (3 + hash2(seed + 163, i) * 6);
     const dscale = 0.85 + hash2(seed + 167, i) * 0.4;
     if (hash2(seed + 165, i) < 0.5) {
       const an = palette.anemones[i % palette.anemones.length];
@@ -551,32 +559,34 @@ function bakeVentBody(chunk) {
   const tctx = cnv.getContext('2d');
   tctx.translate(WALL_PAD, 0);
   const local = { x: 0, y: 0, width, height, seed, side };
-  const innerX = side === 'left' ? width : 0;
   const outerX = side === 'left' ? 0 : width;
   const dir = side === 'left' ? 1 : -1;
 
-  const grad = tctx.createLinearGradient(outerX, 0, innerX, 0);
+  const sampleStep = isFg ? 17 : 48;
+  const jitter = isFg ? FG_JITTER.vent : 1.2;
+  const edgeAt = (yy) => outerX + dir * wallThickness(yy, seed, jitter);
+  const thickAt = (yy) => wallThickness(yy, seed, jitter);
+
+  const grad = tctx.createLinearGradient(outerX, 0, outerX + dir * WALL_BASE_MAX_W, 0);
   grad.addColorStop(0, lerpColor(style.fg, '#ff9d5c', isFg ? 0.12 : 0.05));
   grad.addColorStop(0.55, style.fg);
   grad.addColorStop(1, lerpColor(style.fg, '#000000', isFg ? 0.32 : 0.16));
   tctx.fillStyle = isFg ? grad : style.bg;
   if (isFg) { tctx.strokeStyle = INK; tctx.lineWidth = STROKE.silhouette; }
 
-  const sampleStep = isFg ? 17 : 48;
-  const jitter = isFg ? 7.2 : 1.2;
-  buildWallPath(tctx, local, 20, 0.012, sampleStep, jitter);
+  buildWallPath(tctx, local, sampleStep, jitter);
   tctx.fill();
   if (isFg) tctx.stroke();
 
   if (!isFg) return cnv;
 
-  shade(tctx, () => buildWallPath(tctx, local, 20, 0.012, sampleStep, jitter), 0.24);
+  shade(tctx, () => buildWallPath(tctx, local, sampleStep, jitter), 0.24);
 
   // 그을음/광물 침전 얼룩 (짙은 회색~검정 + 드문 주황 광물맥)
   const patchCount = Math.max(8, Math.round(height / 30));
   for (let i = 0; i < patchCount; i++) {
     const py = hash2(seed, i) * height;
-    const px = innerX - dir * (6 + hash2(seed + 7, i) * width * 0.6);
+    const px = edgeAt(py) - dir * (6 + hash2(seed + 7, i) * thickAt(py) * 0.6);
     const r = 4 + hash2(seed + 13, i) * 7;
     const mineral = hash2(seed + 19, i) > 0.82;
     tctx.fillStyle = mineral ? 'rgba(255,140,70,0.22)' : rgba(INK, 0.16 + hash2(seed + 23, i) * 0.1);
@@ -589,8 +599,8 @@ function bakeVentBody(chunk) {
   tctx.strokeStyle = 'rgba(255,120,60,0.28)';
   tctx.lineWidth = STROKE.detail;
   for (let i = 0; i < crackCount; i++) {
-    let cx = innerX - dir * hash2(seed + 31, i) * width * 0.3;
     let cy = 20 + hash2(seed + 37, i) * (height - 40);
+    let cx = edgeAt(cy) - dir * (4 + hash2(seed + 31, i) * thickAt(cy) * 0.3);
     tctx.beginPath();
     tctx.moveTo(cx, cy);
     const segs = 2 + Math.floor(hash2(seed + 41, i) * 3);
@@ -607,7 +617,7 @@ function bakeVentBody(chunk) {
   const decorCount = Math.max(2, Math.round(height / 210));
   for (let i = 0; i < decorCount; i++) {
     const dy = 50 + hash2(seed + 181, i) * (height - 100);
-    const dx = innerX - dir * (2 + hash2(seed + 183, i) * 6);
+    const dx = edgeAt(dy) - dir * (2 + hash2(seed + 183, i) * 6);
     const dscale = 0.75 + hash2(seed + 187, i) * 0.3;
     if (hash2(seed + 185, i) < 0.55) {
       drawAnemone(tctx, dx, dy, dir, seed + i * 3, palette.anemones[0], dscale);
@@ -630,12 +640,14 @@ function bakeTexture(chunk) {
 function drawVentAnimated(ctx, chunk, timeSec) {
   const { x, y, width, height, seed, side } = chunk;
   const style = TERRAIN_STYLE.vent;
-  const innerX = side === 'left' ? x + width : x;
+  const outerX = side === 'left' ? x : x + width;
   const dir = side === 'left' ? 1 : -1;
   const count = Math.max(2, Math.round(height / 220));
   for (let i = 0; i < count; i++) {
-    const vy = y + 60 + i * 220 + Math.sin(seed + i * 2) * 20;
-    const vx = innerX - dir * 6;
+    const localY = 60 + i * 220 + Math.sin(seed + i * 2) * 20;
+    const vy = y + localY;
+    // 분출구는 실루엣의 실제 가장자리를 따라가야 함 (명목폭 기준이면 곶/만에서 어긋남)
+    const vx = outerX + dir * (wallThickness(localY, seed, FG_JITTER.vent) - 6);
     glow(ctx, vx, vy, 34, style.accent, 0.45);
     stairStack(ctx, 6, 0.06, (k) => {
       const rise = (k + 1) * 12 + Math.sin(timeSec * 0.5 + seed + i + k) * 4;
@@ -708,12 +720,16 @@ export function drawTerrainChunk(ctx, chunk, timeSec) {
   if (chunk.zoneId === 'vent' && isFg) drawVentAnimated(ctx, chunk, timeSec);
 }
 
-// 근경 지형과 다이버의 원형 충돌 판정 (사각형 근사, 살짝 너그럽게)
+// 근경 지형과 다이버의 원형 충돌 판정.
+// 예전엔 조각 사각형 근사를 썼는데, 벽 두께가 y마다 크게 출렁이는 지금 구조에서는
+// 얇은 구간에서 억울한 충돌 / 곶에서 통과가 생긴다 — 실루엣과 같은 wallThickness()로
+// 플레이어 y에서의 실제 벽 두께를 계산해 "보이는 대로" 판정한다.
 export function collidesWithTerrain(chunk, px, py, radius) {
   if (chunk.layer !== 'fg') return false;
-  const closestX = Math.max(chunk.x, Math.min(px, chunk.x + chunk.width));
-  const closestY = Math.max(chunk.y, Math.min(py, chunk.y + chunk.height));
-  const dx = px - closestX;
-  const dy = py - closestY;
-  return (dx * dx + dy * dy) < radius * radius;
+  if (py + radius < chunk.y || py - radius > chunk.y + chunk.height) return false;
+  const localY = clamp(py - chunk.y, 0, chunk.height);
+  const jitter = FG_JITTER[chunk.zoneId] ?? 6;
+  const t = wallThickness(localY, chunk.seed, jitter);
+  if (chunk.side === 'left') return px - radius < t;
+  return px + radius > CANVAS_W - t;
 }
