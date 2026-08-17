@@ -21,46 +21,55 @@ function drawFinBlade(ctx, offsetX, kick, scale) {
   ctx.save();
   ctx.translate(offsetX, 0);
   ctx.scale(scale, scale);
-  const tipBend = kick * 1.5; // 끝부분은 킥에 뒤처져 더 크게 휘어짐 (물 저항 연출)
-  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part / scale;
+  const tipBend = kick * 1.9; // 끝부분은 킥에 뒤처져 더 크게 휘어짐 (물 저항 연출)
+  // 게임 배율에서도 "물갈퀴"로 읽히도록 실물 비율보다 과장: 길고(발 길이의 ~3배)
+  // 발목보다 확실히 넓게 벌어지는 삼각형 실루엣 + 실루엣급 굵은 외곽선.
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.silhouette / scale;
   ctx.fillStyle = FIN_COLOR;
-  // 발 포켓 (발목~발등을 감싸는 짧은 부분 — 스트랩은 drawPlayer 쪽에서 이 위를 지나감)
+  // 발 포켓 (발목~발등)
   ctx.beginPath();
-  ctx.moveTo(-3.6, 13);
-  ctx.lineTo(3.6, 13);
-  ctx.quadraticCurveTo(4.6, 15.5, 4.2, 17.5);
-  ctx.lineTo(-4.2, 17.5);
-  ctx.quadraticCurveTo(-4.6, 15.5, -3.6, 13);
+  ctx.moveTo(-3.6, 12.5);
+  ctx.lineTo(3.6, 12.5);
+  ctx.quadraticCurveTo(4.8, 15, 4.4, 17.5);
+  ctx.lineTo(-4.4, 17.5);
+  ctx.quadraticCurveTo(-4.8, 15, -3.6, 12.5);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 롱 블레이드 (납작하고 길게, 끝은 둥글게 마감)
+  // 롱 블레이드 — 발목 폭보다 넓게 벌어졌다가 둥근 끝으로 모이는 과장된 삼각형
   ctx.beginPath();
-  ctx.moveTo(-4.2, 17.5);
-  ctx.lineTo(4.2, 17.5);
-  ctx.quadraticCurveTo(5.4 + kick * 0.4, 24, 4.6 + kick * 0.9, 30);
-  ctx.quadraticCurveTo(4.2 + tipBend, 35.5, 2.4 + tipBend, 38.5);
-  ctx.quadraticCurveTo(tipBend * 0.9, 39.6, -2 + tipBend, 38.3);
-  ctx.quadraticCurveTo(-3.6 + kick * 0.7, 33, -3.9 + kick * 0.4, 27);
-  ctx.quadraticCurveTo(-4.4, 21.5, -4.2, 17.5);
+  ctx.moveTo(-4.4, 17.5);
+  ctx.lineTo(4.4, 17.5);
+  ctx.quadraticCurveTo(7.6 + kick * 0.5, 26, 7.2 + kick * 1.1, 34);
+  ctx.quadraticCurveTo(6.4 + tipBend, 42, 3.2 + tipBend, 46.5);
+  ctx.quadraticCurveTo(tipBend * 0.9, 48.2, -2.6 + tipBend, 46.2);
+  ctx.quadraticCurveTo(-5.6 + kick * 0.9, 40, -6.4 + kick * 0.5, 32);
+  ctx.quadraticCurveTo(-7, 24, -4.4, 17.5);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // 광택 하이라이트 (오른쪽 면을 따라 흐르는 은은한 윤기)
-  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  // 발등 스트랩 밴드 (밝은 회색 굵은 띠) — 다리↔핀 경계를 명도로 확실히 분리
+  ctx.fillStyle = '#B9C2CC';
   ctx.beginPath();
-  ctx.moveTo(2.2, 19);
-  ctx.quadraticCurveTo(3.6 + kick * 0.5, 26, 2.6 + tipBend * 0.8, 35);
-  ctx.lineTo(1 + tipBend * 0.8, 35.6);
-  ctx.quadraticCurveTo(1.6 + kick * 0.4, 26, 0.8, 19);
+  ctx.roundRect(-4.3, 13.6, 8.6, 3, 1.2);
+  ctx.fill();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.detail / scale;
+  ctx.stroke();
+  // 광택 하이라이트 (오른쪽 면을 따라 흐르는 윤기)
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(3.4, 19);
+  ctx.quadraticCurveTo(6 + kick * 0.6, 28, 4.2 + tipBend * 0.8, 42);
+  ctx.lineTo(2.2 + tipBend * 0.8, 43);
+  ctx.quadraticCurveTo(2.8 + kick * 0.5, 28, 1.6, 19);
   ctx.closePath();
   ctx.fill();
-  // 세로 골(리브) 라인 3개 — 블레이드 곡률을 따라감
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = (STROKE.detail / scale) * 0.9;
+  // 세로 골(리브) 라인 2개 — 대비 강하게
+  ctx.strokeStyle = 'rgba(230,238,246,0.5)';
+  ctx.lineWidth = (STROKE.detail / scale) * 1.25;
   ctx.lineCap = 'round';
-  for (const rx of [-2.1, 0, 2.1]) {
+  for (const rx of [-2.4, 2.4]) {
     ctx.beginPath();
-    ctx.moveTo(rx, 19);
-    ctx.quadraticCurveTo(rx + kick * 0.5, 27, rx * 0.7 + tipBend * 0.85, 36.5);
+    ctx.moveTo(rx, 19.5);
+    ctx.quadraticCurveTo(rx * 1.6 + kick * 0.7, 32, rx * 0.8 + tipBend * 0.9, 44);
     ctx.stroke();
   }
   ctx.restore();
@@ -198,7 +207,7 @@ const SUIT_BELT = '#1B3A4B';      // 벨트·지퍼 (짙은 남색)
 const TANK_COLOR = '#CFDBE2';     // 산소통 몸체 (은회색)
 const TANK_SHADE = '#9FB2BC';
 const VALVE_COLOR = '#E14B3F';    // 산소통 밸브 (빨강)
-const FIN_COLOR = '#23262B';      // 오리발 — 실제 스쿠버 핀 같은 짙은 차콜/검정
+const FIN_COLOR = '#101216';      // 오리발 — 순검정에 가깝게 (웻슈트와 명도 분리)
 const GLOVE_COLOR = '#1B3A4B';
 const SKIN_COLOR = '#FBCB98';
 const MASK_RIM_OUTER = '#16233B';
@@ -215,8 +224,8 @@ export function drawPlayer(ctx, player) {
   // 좌우 다리가 서로 엇갈리게(반대 위상, 위상차 π) 움직이는 발차기 —
   // 한쪽 핀이 위로 갈 때 반대쪽은 아래로 가는 실제 수영 킥 모션.
   const kickPhase = player.swimPhase * 6.5;
-  const backFinKick = Math.sin(kickPhase) * 6;
-  const frontFinKick = Math.sin(kickPhase + Math.PI) * 6;
+  const backFinKick = Math.sin(kickPhase) * 9;
+  const frontFinKick = Math.sin(kickPhase + Math.PI) * 9; // 진폭 확대 — 벌어졌다 모이는 킥이 멀리서도 보이게
   const armSwing = Math.sin(player.swimPhase * 6.5 + 1.4) * 2.4;
   // 다이버 특유의 헤엄치는 자세감: 상하 이동 속도에 따라 몸 전체를 살짝 기울여
   // 직립 원통형이 아니라 앞으로 나아가는 다이빙 자세처럼 보이게 한다.
