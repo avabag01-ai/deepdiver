@@ -42,7 +42,41 @@ export const DEX_INFO = {
   yeticrab: { en: 'Yeti Crab', depth: '2,200~2,600m', size: '최대 15cm', fact: '털북숭이 집게발에 세균을 길러서 먹어요.' },
   dandelionjelly: { en: 'Dandelion Siphonophore', depth: '1,000~3,000m', size: '최대 10cm', fact: '사실 한 마리가 아니라 여러 개체가 모인 하나의 팀이에요.' },
   scalyfootsnail: { en: 'Scaly-foot Snail', depth: '2,400~2,900m', size: '최대 4.5cm', fact: '철 비늘 갑옷을 입은 지구 유일의 동물이에요.' },
+  // ---- 나라별 고유종 (1.1 확장) ----
+  damselfish: { en: 'Pearl-spot Chromis', depth: '2~15m', size: '최대 17cm', fact: '제주 바다의 터줏대감 — 떼 지어 다니며 텃세가 아주 심해요.' },
+  scorpionfish: { en: 'Scorpionfish', depth: '5~80m', size: '최대 30cm', fact: '바위인 척 숨어 있다 순식간에 삼켜요. 등가시엔 독이 있어요.' },
+  softcoral: { en: 'Soft Coral', depth: '10~40m', size: '군락 최대 1m', fact: '제주 문섬의 보물 — 딱딱한 뼈대 없이 물살에 하늘하늘 흔들려요.' },
+  napoleonfish: { en: 'Napoleon Wrasse', depth: '1~60m', size: '최대 2m', fact: '이마의 커다란 혹이 트레이드마크 — 사람 얼굴도 기억해요.' },
+  ribboneel: { en: 'Ribbon Eel', depth: '1~60m', size: '최대 1.3m', fact: '리본처럼 얇은 몸 — 자라면서 검정에서 파랑으로 변신해요.' },
+  blindcavefish: { en: 'Blind Cave Fish', depth: '동굴 담수', size: '최대 12cm', fact: '깜깜한 동굴에 살아 눈이 아예 사라졌어요. 물결로 세상을 느껴요.' },
+  mandarinfish: { en: 'Mandarin Fish', depth: '1~18m', size: '최대 6cm', fact: '물감을 뿌린 듯한 무늬 — 세상에서 가장 화려한 물고기로 꼽혀요.' },
+  pygmyseahorse: { en: 'Pygmy Seahorse', depth: '10~40m', size: '최대 2.4cm', fact: '손톱보다 작고 산호랑 똑같이 생겨서 1969년에야 발견됐어요.' },
+  mantaray: { en: 'Reef Manta Ray', depth: '0~40m', size: '날개폭 최대 4.5m', fact: '날개를 펄럭이며 바닷속을 날아요. 물고기 중 두뇌가 가장 커요.' },
+  whaleshark: { en: 'Whale Shark', depth: '0~100m', size: '최대 12m', fact: '세상에서 가장 큰 물고기 — 그런데 먹는 건 아주 작은 플랑크톤이에요.' },
+  marineiguana: { en: 'Marine Iguana', depth: '0~30m', size: '최대 1.5m', fact: '바다에 잠수하는 유일한 도마뱀 — 물속 해조류를 뜯어 먹어요.' },
+  galapagosshark: { en: 'Galapagos Shark', depth: '2~180m', size: '최대 3.7m', fact: '갈라파고스의 순찰대장 — 호기심이 많아 다이버를 따라와요.' },
+  arcticchar: { en: 'Arctic Char', depth: '0~70m', size: '최대 1m', fact: '빙하 녹은 물처럼 차가운 곳을 가장 좋아하는 연어의 사촌이에요.' },
 };
+
+// ---- 나라별 도감 구분 (siteOnly 종의 country 필드 기준) ----
+export const COUNTRIES = [
+  { id: 'KR', label: '대한민국', flag: '🇰🇷' },
+  { id: 'JP', label: '일본', flag: '🇯🇵' },
+  { id: 'IS', label: '아이슬란드', flag: '🇮🇸' },
+  { id: 'MV', label: '몰디브', flag: '🇲🇻' },
+  { id: 'ID', label: '인도네시아', flag: '🇮🇩' },
+  { id: 'MX', label: '멕시코', flag: '🇲🇽' },
+  { id: 'EC', label: '에콰도르', flag: '🇪🇨' },
+];
+
+export function speciesInCountry(countryId) {
+  return SPECIES.filter(sp => sp.country === countryId);
+}
+
+// 나라 소속이 없는 종 (기존 28종 — 전 해역/해구 공통)
+export function speciesGlobal() {
+  return SPECIES.filter(sp => !sp.country);
+}
 
 // 희귀도 — 스폰 가중치(weight) 기반: 낮을수록 보기 어렵다
 export function rarityOf(speciesId) {

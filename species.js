@@ -1524,6 +1524,549 @@ function drawScalyfootSnail(ctx, x, y, t, s) {
   ctx.restore();
 }
 
+
+// ---------------------------------------------------------------------------
+// 나라별 고유종 (1.1 확장) — 각 종은 특정 다이빙 스팟(siteOnly)에서만 등장한다.
+
+// 29. 자리돔 (제주) — 작고 통통한 진갈색 몸 + 꼬리자루의 흰 점 하나가 포인트
+function drawDamselfish(ctx, x, y, t, s) {
+  const flick = Math.sin(t * 8) * 2;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(flick * 0.012);
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#4A3A34';
+  ctx.beginPath();
+  ctx.moveTo(-9 * s, 0);
+  ctx.lineTo(-15 * s, -6 * s + flick * 0.4);
+  ctx.lineTo(-13 * s, 0);
+  ctx.lineTo(-15 * s, 6 * s + flick * 0.4);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#5C463C';
+  ellipsePath(ctx, 0, 0, 11 * s, 8.5 * s);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#7A6252';
+  ctx.beginPath(); ctx.ellipse(1 * s, 4 * s, 8 * s, 3.4 * s, 0, 0, Math.PI); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 3 * s, 8 * s, 4.5 * s), 0.18);
+  // 등지느러미
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#4A3A34';
+  ctx.beginPath(); ctx.moveTo(-3 * s, -7.5 * s); ctx.quadraticCurveTo(1 * s, -11 * s, 5 * s, -7 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 시그니처: 꼬리자루 흰 점
+  ctx.fillStyle = '#F4F0E8';
+  ctx.beginPath(); ctx.arc(-8.5 * s, -3 * s, 2 * s, 0, Math.PI * 2); ctx.fill();
+  outline(ctx, STROKE.detail * s); ctx.stroke();
+  eye(ctx, 7.5 * s, -2 * s, 2.6 * s);
+  ctx.restore();
+}
+
+// 30. 쏨뱅이 (제주) — 붉은 바위색 매복형, 삐죽삐죽 지느러미 가시 + 큰 입
+function drawScorpionfish(ctx, x, y, t, s) {
+  const breathe = Math.sin(t * 1.6) * 0.8; // 매복형: 거의 안 움직이고 숨만 쉼
+  ctx.save();
+  ctx.translate(x, y);
+  // 가슴지느러미 (부채, 바닥에 짚은 느낌)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#8A4030';
+  ctx.beginPath(); ctx.ellipse(2 * s, 7 * s, 8 * s, 4 * s, 0.35, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 몸통 (울퉁불퉁 바위 실루엣)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#A85038';
+  ctx.beginPath();
+  ctx.moveTo(-14 * s, 3 * s);
+  ctx.quadraticCurveTo(-12 * s, -5 * s, -5 * s, -7 * s + breathe);
+  ctx.lineTo(-2 * s, -5 * s); ctx.lineTo(1 * s, -8 * s + breathe); ctx.lineTo(4 * s, -5.5 * s);
+  ctx.lineTo(7 * s, -7 * s); ctx.quadraticCurveTo(13 * s, -4 * s, 14 * s, 1 * s);
+  ctx.quadraticCurveTo(12 * s, 6 * s, 4 * s, 7 * s);
+  ctx.quadraticCurveTo(-6 * s, 8 * s, -14 * s, 3 * s);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 얼룩덜룩 위장 무늬
+  ctx.fillStyle = 'rgba(70,26,20,0.45)';
+  for (const [px, py, r] of [[-7, -1, 3.2], [0, 2, 2.6], [6, -1, 2.8], [-2, -4, 2]]) {
+    ctx.beginPath(); ctx.arc(px * s, py * s, r * s, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,170,120,0.35)';
+  for (const [px, py] of [[-10, 2], [3, 5], [9, 2]]) {
+    ctx.beginPath(); ctx.arc(px * s, py * s, 1.6 * s, 0, Math.PI * 2); ctx.fill();
+  }
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 4 * s, 11 * s, 4 * s), 0.2);
+  // 독가시 (등 위 뾰족뾰족 — 위험 신호)
+  ctx.strokeStyle = '#5C2418'; ctx.lineWidth = STROKE.detail * s * 1.2; ctx.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const gx = (-6 + i * 3.4) * s;
+    ctx.beginPath(); ctx.moveTo(gx, -6 * s); ctx.lineTo(gx + 0.6 * s, -10.5 * s - breathe); ctx.stroke();
+  }
+  // 뿌루퉁한 큰 입 + 작은 눈
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part * s;
+  ctx.beginPath(); ctx.moveTo(10 * s, 2.5 * s); ctx.quadraticCurveTo(13.5 * s, 3 * s, 14 * s, 0.5 * s); ctx.stroke();
+  eye(ctx, 9.5 * s, -3.5 * s, 2 * s);
+  ctx.restore();
+}
+
+// 31. 연산호 (제주 문섬) — 분홍/보라 가지 군락, 고정형이지만 관찰 대상
+function drawSoftCoral(ctx, x, y, t, s) {
+  const swayA = Math.sin(t * 1.2) * 0.08;
+  ctx.save();
+  ctx.translate(x, y);
+  // 밑동 바위
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#6A5A52';
+  ctx.beginPath(); ctx.ellipse(0, 12 * s, 9 * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 가지 3~5개 (물살에 하늘하늘)
+  const branches = [[-6, -0.5, 16, '#E86A9E'], [-1, -0.1, 21, '#F08ABA'], [4, 0.35, 17, '#D95A8E'], [8, 0.6, 12, '#E87AAE']];
+  for (const [bx, ang, len, color] of branches) {
+    ctx.save();
+    ctx.translate(bx * s, 10 * s);
+    ctx.rotate(ang * 0.35 + swayA);
+    outline(ctx, STROKE.part * s);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-2.2 * s, 0);
+    ctx.quadraticCurveTo(-3 * s, -len * 0.5 * s, -1.2 * s, -len * s);
+    ctx.quadraticCurveTo(0, -(len + 2) * s, 1.2 * s, -len * s);
+    ctx.quadraticCurveTo(3 * s, -len * 0.5 * s, 2.2 * s, 0);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 폴립 점묘 (밝은 끝)
+    ctx.fillStyle = '#FFD8EC';
+    for (let i = 0; i < 5; i++) {
+      const py = -(len - 2 - i * (len / 6)) * s;
+      const px = Math.sin(i * 2.2 + bx) * 1.6 * s;
+      ctx.beginPath(); ctx.arc(px, py, 0.9 * s, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 12 * s, 7 * s, 3 * s), 0.2);
+  ctx.restore();
+}
+
+// 32. 나폴레옹피시 (오키나와) — 커다란 초록 몸 + 이마 혹 + 두툼한 입술
+function drawNapoleonfish(ctx, x, y, t, s) {
+  const cruise = Math.sin(t * 2.2) * 2;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(cruise * 0.008);
+  // 꼬리
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#2E7A5E';
+  ctx.beginPath();
+  ctx.moveTo(-16 * s, 0);
+  ctx.quadraticCurveTo(-24 * s, -9 * s + cruise * 0.4, -26 * s, -8 * s);
+  ctx.lineTo(-23 * s, 0);
+  ctx.lineTo(-26 * s, 8 * s + cruise * 0.4);
+  ctx.quadraticCurveTo(-24 * s, 9 * s, -16 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 몸통 (크고 묵직한 타원)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#3E9A72';
+  ctx.beginPath();
+  ctx.moveTo(-17 * s, 1 * s);
+  ctx.quadraticCurveTo(-14 * s, -10 * s, -2 * s, -12 * s);
+  // 시그니처: 이마 혹 (crest)
+  ctx.quadraticCurveTo(8 * s, -13.5 * s, 12 * s, -9 * s);
+  ctx.quadraticCurveTo(17 * s, -5 * s, 17.5 * s, 0);
+  ctx.quadraticCurveTo(17 * s, 6 * s, 10 * s, 9 * s);
+  ctx.quadraticCurveTo(-4 * s, 12 * s, -17 * s, 1 * s);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 미로 무늬 (얼굴~몸의 구불구불 세로줄)
+  ctx.strokeStyle = 'rgba(20,70,52,0.55)'; ctx.lineWidth = STROKE.detail * s;
+  for (let i = 0; i < 5; i++) {
+    const lx = (-10 + i * 5) * s;
+    ctx.beginPath();
+    ctx.moveTo(lx, -8 * s);
+    ctx.quadraticCurveTo(lx + Math.sin(i * 2.7) * 3 * s, 0, lx, 8 * s);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(150,230,190,0.3)';
+  ctx.beginPath(); ctx.ellipse(0, 5 * s, 13 * s, 5 * s, 0, 0, Math.PI); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 5 * s, 13 * s, 6 * s), 0.16);
+  // 두툼한 입술
+  ctx.fillStyle = '#8FD8B4';
+  outline(ctx, STROKE.part * s);
+  ctx.beginPath(); ctx.ellipse(16.5 * s, 2 * s, 2.6 * s, 3.4 * s, -0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  eye(ctx, 10 * s, -5 * s, 2.8 * s);
+  ctx.restore();
+}
+
+// 33. 리본장어 (오키나와) — 파랑+노랑 리본 S웨이브, 콧잎이 나풀
+function drawRibbonEel(ctx, x, y, t, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  const pts = [];
+  for (let i = 0; i <= 12; i++) {
+    const u = i / 12;
+    const px = (-22 + u * 40) * s;
+    const py = Math.sin(t * 3.2 + u * 5.2) * 6 * s * (0.4 + u * 0.6);
+    pts.push([px, py]);
+  }
+  // 리본 몸 (파랑 띠 + 노랑 등 테두리)
+  ctx.strokeStyle = INK; ctx.lineWidth = 7.5 * s; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.stroke();
+  ctx.strokeStyle = '#2E5EDE'; ctx.lineWidth = 5.6 * s;
+  ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.stroke();
+  ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 1.6 * s;
+  ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(px, py - 2.2 * s) : ctx.moveTo(px, py - 2.2 * s)); ctx.stroke();
+  // 머리 (마지막 점) — 콧잎 나풀 + 노랑 주둥이
+  const [hx, hy] = pts[12];
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#2E5EDE';
+  ctx.beginPath(); ctx.ellipse(hx, hy, 4.4 * s, 3.6 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#FFD23F';
+  ctx.beginPath(); ctx.moveTo(hx + 3 * s, hy - 1 * s); ctx.quadraticCurveTo(hx + 8 * s, hy - 3 * s + Math.sin(t * 6) * s, hx + 7 * s, hy); ctx.quadraticCurveTo(hx + 8 * s, hy + 3 * s, hx + 3 * s, hy + 1 * s); ctx.closePath(); ctx.fill();
+  outline(ctx, STROKE.detail * s); ctx.stroke();
+  eye(ctx, hx + 1 * s, hy - 1.2 * s, 1.6 * s);
+  ctx.restore();
+}
+
+// 34. 블라인드 케이브피시 (세노테) — 창백한 분홍, 눈이 아예 없음
+function drawBlindCavefish(ctx, x, y, t, s) {
+  const flick = Math.sin(t * 5.5) * 2.4;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(flick * 0.012);
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#F0C8C0';
+  ctx.beginPath();
+  ctx.moveTo(-10 * s, 0);
+  ctx.lineTo(-17 * s, -6 * s + flick * 0.5);
+  ctx.lineTo(-14.5 * s, 0);
+  ctx.lineTo(-17 * s, 6 * s + flick * 0.5);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#F6DAD2';
+  ellipsePath(ctx, 0, 0, 13 * s, 7.5 * s);
+  ctx.fill(); ctx.stroke();
+  // 반투명 몸 안쪽이 살짝 비침 (창백함 강조)
+  ctx.fillStyle = 'rgba(220,140,140,0.28)';
+  ctx.beginPath(); ctx.ellipse(-2 * s, 0.5 * s, 6 * s, 3 * s, 0.1, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.ellipse(2 * s, -3 * s, 7 * s, 2.4 * s, -0.08, 0, Math.PI * 2); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 3 * s, 10 * s, 4 * s), 0.12);
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#F0C8C0';
+  ctx.beginPath(); ctx.moveTo(-2 * s, -6.5 * s); ctx.quadraticCurveTo(2 * s, -10 * s, 5 * s, -6.5 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 시그니처: 눈이 있어야 할 자리가 매끈함 (점 하나 없음) + 감각 수염 라인
+  ctx.strokeStyle = rgba(INK, 0.25); ctx.lineWidth = STROKE.detail * s;
+  ctx.beginPath(); ctx.moveTo(8 * s, 1 * s); ctx.quadraticCurveTo(11 * s, 2 * s, 12.5 * s, 1.4 * s); ctx.stroke();
+  ctx.restore();
+}
+
+// 35. 만다린피시 (라자암팟) — 주황 바탕 + 파랑 소용돌이 무늬, 세상에서 가장 화려
+function drawMandarinfish(ctx, x, y, t, s) {
+  const hover = Math.sin(t * 3.4) * 1.6;
+  ctx.save();
+  ctx.translate(x, y + hover * 0.4);
+  // 부채 꼬리
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#F08030';
+  ctx.beginPath(); ctx.ellipse(-12 * s, 0, 5 * s, 6.5 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#2E7EDE'; ctx.lineWidth = 1.2 * s;
+  ctx.beginPath(); ctx.ellipse(-12 * s, 0, 3.2 * s, 4.6 * s, 0, 0, Math.PI * 2); ctx.stroke();
+  // 몸통 (둥글넓적)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#F89040';
+  ellipsePath(ctx, 0, 0, 12 * s, 8.5 * s);
+  ctx.fill(); ctx.stroke();
+  // 시그니처: 파랑 소용돌이 줄무늬 (물감 뿌린 듯)
+  ctx.strokeStyle = '#2E7EDE'; ctx.lineWidth = 2.2 * s; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-8 * s, -4 * s); ctx.quadraticCurveTo(-2 * s, -8 * s, 3 * s, -4 * s); ctx.quadraticCurveTo(6 * s, -2 * s, 4 * s, 1 * s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-9 * s, 3 * s); ctx.quadraticCurveTo(-3 * s, 7 * s, 4 * s, 4.5 * s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-4 * s, -1 * s); ctx.quadraticCurveTo(-1 * s, 1.5 * s, -5 * s, 3 * s); ctx.stroke();
+  ctx.strokeStyle = '#3EDEA8'; ctx.lineWidth = 1.1 * s;
+  ctx.beginPath(); ctx.moveTo(6 * s, -5 * s); ctx.quadraticCurveTo(9 * s, -3 * s, 8 * s, 0); ctx.stroke();
+  // 큰 등지느러미 (돛처럼, 파랑 테)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#F08030';
+  ctx.beginPath(); ctx.moveTo(-4 * s, -7.5 * s); ctx.quadraticCurveTo(0, -14 * s + hover * 0.5, 6 * s, -7.5 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#2E7EDE'; ctx.lineWidth = 1.4 * s;
+  ctx.beginPath(); ctx.moveTo(-2.5 * s, -8 * s); ctx.quadraticCurveTo(0.5 * s, -12 * s + hover * 0.5, 4.5 * s, -8 * s); ctx.stroke();
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 3 * s, 9 * s, 4.5 * s), 0.14);
+  eye(ctx, 8.5 * s, -2.5 * s, 2.6 * s);
+  ctx.restore();
+}
+
+// 36. 피그미 해마 (라자암팟) — 손톱만 한 분홍 해마, 몸에 산호같은 돌기
+function drawPygmySeahorse(ctx, x, y, t, s) {
+  const drift = Math.sin(t * 2.6) * 1.4;
+  ctx.save();
+  ctx.translate(x, y + drift * 0.5);
+  ctx.rotate(Math.sin(t * 1.8) * 0.06);
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#F2A0B4';
+  // S자 몸통 (머리-배-말린 꼬리)
+  ctx.beginPath();
+  ctx.moveTo(2 * s, -12 * s);
+  ctx.quadraticCurveTo(7 * s, -11 * s, 6 * s, -6 * s);
+  ctx.quadraticCurveTo(8 * s, 2 * s, 4 * s, 7 * s);
+  ctx.quadraticCurveTo(1 * s, 11 * s, -3 * s, 10 * s);
+  ctx.quadraticCurveTo(-6.5 * s, 9 * s, -5 * s, 6 * s);
+  ctx.quadraticCurveTo(-4 * s, 4.5 * s, -2 * s, 5.5 * s);
+  ctx.quadraticCurveTo(0.5 * s, 6.5 * s, 1 * s, 3 * s);
+  ctx.quadraticCurveTo(1.5 * s, -2 * s, 0 * s, -5 * s);
+  ctx.quadraticCurveTo(-2 * s, -9 * s, -1 * s, -11 * s);
+  ctx.quadraticCurveTo(0, -13 * s, 2 * s, -12 * s);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 주둥이
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#F2A0B4';
+  ctx.beginPath(); ctx.ellipse(5 * s, -11 * s, 3 * s, 1.5 * s, 0.15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 시그니처: 산호 폴립을 닮은 붉은 돌기들
+  ctx.fillStyle = '#E05A78';
+  for (const [px, py] of [[3, -8], [5, -3], [4, 2], [1, 6], [-2, -3], [0, -0.5]]) {
+    ctx.beginPath(); ctx.arc(px * s, py * s, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+  }
+  outline(ctx, STROKE.detail * s);
+  for (const [px, py] of [[3, -8], [5, -3], [4, 2]]) {
+    ctx.beginPath(); ctx.arc(px * s, py * s, 1.5 * s, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 팔랑 등지느러미
+  ctx.fillStyle = 'rgba(255,200,215,0.75)';
+  ctx.beginPath(); ctx.moveTo(-1 * s, -2 * s); ctx.quadraticCurveTo(-6 * s + drift, -1 * s, -2 * s, 2 * s); ctx.closePath(); ctx.fill();
+  eye(ctx, 2 * s, -10 * s, 1.7 * s);
+  ctx.restore();
+}
+
+// 37. 만타레이 (몰디브) — 검은 다이아몬드 날개 + 흰 배, 날갯짓 활공
+function drawMantaRay(ctx, x, y, t, s) {
+  const flap = Math.sin(t * 1.6) * 6; // 느리고 우아한 날갯짓
+  ctx.save();
+  ctx.translate(x, y);
+  // 꼬리 (가늘고 길게)
+  ctx.strokeStyle = INK; ctx.lineWidth = 2 * s; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-16 * s, 1 * s); ctx.quadraticCurveTo(-26 * s, 2 * s + flap * 0.3, -33 * s, 0.5 * s); ctx.stroke();
+  // 날개+몸 실루엣 (다이아몬드)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#20303E';
+  ctx.beginPath();
+  ctx.moveTo(14 * s, 0);
+  ctx.quadraticCurveTo(6 * s, -3 * s, -2 * s, -4 * s);
+  ctx.quadraticCurveTo(8 * s, -8 * s - flap, 20 * s, -16 * s - flap); // 오른 날개끝(위)
+  ctx.quadraticCurveTo(4 * s, -9 * s - flap * 0.6, -8 * s, -5 * s);
+  ctx.quadraticCurveTo(-16 * s, -2 * s, -16 * s, 0.5 * s);
+  ctx.quadraticCurveTo(-16 * s, 3 * s, -8 * s, 5 * s);
+  ctx.quadraticCurveTo(4 * s, 9 * s + flap * 0.6, 20 * s, 16 * s + flap); // 왼 날개끝(아래)
+  ctx.quadraticCurveTo(8 * s, 8 * s + flap, -2 * s, 4 * s);
+  ctx.quadraticCurveTo(6 * s, 3 * s, 14 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 흰 배 얼룩 (만타 개체식별 무늬)
+  ctx.fillStyle = 'rgba(240,248,252,0.85)';
+  ctx.beginPath(); ctx.ellipse(-2 * s, 0.5 * s, 8 * s, 3.4 * s, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#20303E';
+  ctx.beginPath(); ctx.arc(-5 * s, 0.5 * s, 1.1 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(-1 * s, 1.4 * s, 0.9 * s, 0, Math.PI * 2); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, -2 * s, 2 * s, 10 * s, 3.5 * s), 0.15);
+  // 머리지느러미 (세팔릭 핀 한 쌍 — 뿔처럼)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#20303E';
+  ctx.beginPath(); ctx.moveTo(13 * s, -2 * s); ctx.quadraticCurveTo(19 * s, -4 * s, 18 * s, -1 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(13 * s, 2 * s); ctx.quadraticCurveTo(19 * s, 4 * s, 18 * s, 1 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  eye(ctx, 11 * s, -1.5 * s, 1.8 * s);
+  ctx.restore();
+}
+
+// 38. 고래상어 (몰디브) — 세상에서 가장 큰 물고기, 회청색+흰 점 격자
+function drawWhaleShark(ctx, x, y, t, s) {
+  const cruise = Math.sin(t * 1.4) * 3;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(cruise * 0.004);
+  // 꼬리 (초승달, 위쪽이 김)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#3E5A72';
+  ctx.beginPath();
+  ctx.moveTo(-22 * s, 0);
+  ctx.quadraticCurveTo(-27 * s, -4 * s, -30 * s, -12 * s + cruise * 0.5);
+  ctx.quadraticCurveTo(-26 * s, -2 * s, -25 * s, 1 * s);
+  ctx.quadraticCurveTo(-27 * s, 5 * s, -29 * s, 8 * s + cruise * 0.5);
+  ctx.quadraticCurveTo(-25 * s, 6 * s, -22 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 몸통 (넓적하고 긴 유선형)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#48688A';
+  ctx.beginPath();
+  ctx.moveTo(-23 * s, 0);
+  ctx.quadraticCurveTo(-16 * s, -8 * s, 0, -9.5 * s);
+  ctx.quadraticCurveTo(14 * s, -10 * s, 22 * s, -5 * s);
+  ctx.quadraticCurveTo(25.5 * s, -2 * s, 25.5 * s, 0.5 * s);
+  ctx.quadraticCurveTo(25 * s, 3.5 * s, 18 * s, 6 * s);
+  ctx.quadraticCurveTo(2 * s, 10 * s, -12 * s, 7 * s);
+  ctx.quadraticCurveTo(-20 * s, 5 * s, -23 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 배 (연한 회백)
+  ctx.fillStyle = 'rgba(220,232,240,0.5)';
+  ctx.beginPath(); ctx.ellipse(0, 6 * s, 18 * s, 3.4 * s, 0, 0, Math.PI); ctx.fill();
+  // 등 융기선 3줄
+  ctx.strokeStyle = 'rgba(20,40,60,0.4)'; ctx.lineWidth = STROKE.detail * s;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-18 * s, (-6 + i * 2.2) * s);
+    ctx.quadraticCurveTo(0, (-8.5 + i * 2.4) * s, 20 * s, (-4 + i * 1.8) * s);
+    ctx.stroke();
+  }
+  // 시그니처: 흰 점 격자 (체크판 무늬)
+  ctx.fillStyle = 'rgba(235,245,250,0.9)';
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 8; c++) {
+      const px = (-18 + c * 5.4 + (r % 2) * 2.7) * s;
+      const py = (-6.5 + r * 3.6) * s;
+      ctx.beginPath(); ctx.arc(px, py, 1.05 * s, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 4 * s, 20 * s, 5 * s), 0.15);
+  // 등지느러미 + 넓적한 입
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#3E5A72';
+  ctx.beginPath(); ctx.moveTo(-6 * s, -9 * s); ctx.quadraticCurveTo(-2 * s, -14 * s, 3 * s, -9 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part * s; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(19 * s, -1.5 * s); ctx.quadraticCurveTo(24 * s, -0.5 * s, 25 * s, 1 * s); ctx.stroke();
+  eye(ctx, 17 * s, -4.5 * s, 1.6 * s);
+  ctx.restore();
+}
+
+// 39. 바다이구아나 (갈라파고스) — 잠수하는 유일한 도마뱀, 꼬리로 헤엄
+function drawMarineIguana(ctx, x, y, t, s) {
+  const tailWave = Math.sin(t * 3.2) * 5;
+  ctx.save();
+  ctx.translate(x, y);
+  // 꼬리 (좌우로 저으며 추진 — 세로로 납작)
+  ctx.strokeStyle = INK; ctx.lineWidth = 5 * s; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-10 * s, 1 * s);
+  ctx.quadraticCurveTo(-17 * s, 2 * s + tailWave * 0.4, -23 * s, tailWave * s * 0.16 + 1 * s);
+  ctx.stroke();
+  ctx.strokeStyle = '#3A4038'; ctx.lineWidth = 3.4 * s;
+  ctx.beginPath();
+  ctx.moveTo(-10 * s, 1 * s);
+  ctx.quadraticCurveTo(-17 * s, 2 * s + tailWave * 0.4, -23 * s, tailWave * s * 0.16 + 1 * s);
+  ctx.stroke();
+  // 뒷다리 (몸에 붙임 — 유영 자세)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#464C42';
+  ctx.beginPath(); ctx.ellipse(-6 * s, 4.5 * s, 4 * s, 2 * s, 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 몸통
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#4E5648';
+  ctx.beginPath();
+  ctx.moveTo(-11 * s, 1 * s);
+  ctx.quadraticCurveTo(-6 * s, -4.5 * s, 3 * s, -4.5 * s);
+  ctx.quadraticCurveTo(10 * s, -4 * s, 12 * s, -1 * s);
+  ctx.quadraticCurveTo(13 * s, 2 * s, 8 * s, 4 * s);
+  ctx.quadraticCurveTo(-2 * s, 6.5 * s, -11 * s, 1 * s);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 시그니처: 등 가시 볏 (머리~꼬리)
+  ctx.strokeStyle = '#2E3428'; ctx.lineWidth = STROKE.detail * s * 1.2; ctx.lineCap = 'round';
+  for (let i = 0; i < 7; i++) {
+    const gx = (-9 + i * 3.2) * s;
+    const gy = (-3.6 + Math.abs(i - 3) * 0.5) * s;
+    ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + 0.4 * s, gy - 3 * s); ctx.stroke();
+  }
+  // 얼룩 (소금기 하얀 자국 — 재채기로 소금 배출)
+  ctx.fillStyle = 'rgba(220,225,215,0.35)';
+  ctx.beginPath(); ctx.arc(6 * s, -2 * s, 2 * s, 0, Math.PI * 2); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, 0, 3 * s, 9 * s, 3 * s), 0.2);
+  // 뭉툭한 머리 + 앞발
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#4E5648';
+  ctx.beginPath(); ctx.ellipse(13 * s, -1.5 * s, 4.4 * s, 3.6 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(4 * s, 4.5 * s, 3 * s, 1.7 * s, 0.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  eye(ctx, 14 * s, -2.5 * s, 1.8 * s);
+  ctx.restore();
+}
+
+// 40. 갈라파고스 상어 — 묵직한 회색 몸, 둥근 코, 높은 등지느러미
+function drawGalapagosShark(ctx, x, y, t, s) {
+  const tailWhip = Math.sin(t * 2.6) * 4;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tailWhip * 0.006);
+  // 꼬리 (헤테로세르카)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#5E6E7E';
+  ctx.beginPath();
+  ctx.moveTo(-18 * s, 0);
+  ctx.quadraticCurveTo(-23 * s, -3 * s, -26 * s, -10 * s + tailWhip * 0.5);
+  ctx.quadraticCurveTo(-22.5 * s, -2 * s, -21.5 * s, 0.5 * s);
+  ctx.quadraticCurveTo(-23 * s, 3.5 * s, -24.5 * s, 6 * s + tailWhip * 0.4);
+  ctx.quadraticCurveTo(-21 * s, 4 * s, -18 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 몸통 (리프상어보다 두툼)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#6E8090';
+  ctx.beginPath();
+  ctx.moveTo(-19 * s, 0);
+  ctx.quadraticCurveTo(-10 * s, -7 * s, 4 * s, -6.5 * s);
+  ctx.quadraticCurveTo(15 * s, -5.5 * s, 20 * s, -1.5 * s);
+  ctx.quadraticCurveTo(21.5 * s, 0.5 * s, 19 * s, 2 * s);
+  ctx.quadraticCurveTo(8 * s, 6.5 * s, -8 * s, 5.5 * s);
+  ctx.quadraticCurveTo(-16 * s, 4.5 * s, -19 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 카운터셰이딩 흰 배
+  ctx.fillStyle = 'rgba(235,242,248,0.75)';
+  ctx.beginPath(); ctx.ellipse(0, 3.6 * s, 15 * s, 2.8 * s, 0, 0, Math.PI); ctx.fill();
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 2 * s, 15 * s, 4 * s), 0.14);
+  // 시그니처: 유난히 높고 곧은 첫 등지느러미
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#5E6E7E';
+  ctx.beginPath(); ctx.moveTo(-5 * s, -6 * s); ctx.lineTo(-1 * s, -14.5 * s); ctx.quadraticCurveTo(1.5 * s, -8 * s, 4 * s, -6 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 가슴지느러미
+  ctx.beginPath(); ctx.moveTo(2 * s, 3 * s); ctx.quadraticCurveTo(-1 * s, 10 * s, -6 * s, 11 * s); ctx.quadraticCurveTo(-2 * s, 6 * s, -2 * s, 3.5 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 아가미 5줄 + 둥근 코 + 눈
+  ctx.strokeStyle = rgba(INK, 0.45); ctx.lineWidth = STROKE.detail * s;
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath(); ctx.moveTo((8 + i * 1.7) * s, -3.5 * s); ctx.lineTo((8.5 + i * 1.7) * s, 1.5 * s); ctx.stroke();
+  }
+  ctx.strokeStyle = INK; ctx.lineWidth = STROKE.part * s;
+  ctx.beginPath(); ctx.moveTo(17 * s, 1.5 * s); ctx.quadraticCurveTo(19.5 * s, 1.8 * s, 20.5 * s, 0.5 * s); ctx.stroke();
+  eye(ctx, 15.5 * s, -2.8 * s, 1.9 * s);
+  ctx.restore();
+}
+
+// 41. 북극 곤들매기 (실프라) — 은빛 몸 + 분홍 배, 연한 점무늬 (연어 사촌)
+function drawArcticChar(ctx, x, y, t, s) {
+  const flick = Math.sin(t * 4.6) * 3;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(flick * 0.008);
+  // 꼬리 (얕은 브이)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#7A96A8';
+  ctx.beginPath();
+  ctx.moveTo(-14 * s, 0);
+  ctx.lineTo(-21 * s, -7 * s + flick * 0.4);
+  ctx.lineTo(-19 * s, 0);
+  ctx.lineTo(-21 * s, 7 * s + flick * 0.4);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 몸통 (길쭉 유선형)
+  outline(ctx, STROKE.silhouette * s);
+  ctx.fillStyle = '#96AEBE';
+  ctx.beginPath();
+  ctx.moveTo(-15 * s, 0);
+  ctx.quadraticCurveTo(-8 * s, -6.5 * s, 4 * s, -6 * s);
+  ctx.quadraticCurveTo(13 * s, -5 * s, 17 * s, -1 * s);
+  ctx.quadraticCurveTo(18 * s, 0.5 * s, 16.5 * s, 1.5 * s);
+  ctx.quadraticCurveTo(8 * s, 6 * s, -6 * s, 5.5 * s);
+  ctx.quadraticCurveTo(-12 * s, 5 * s, -15 * s, 0);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 시그니처: 산란기 분홍 배
+  ctx.fillStyle = 'rgba(240,140,130,0.6)';
+  ctx.beginPath(); ctx.ellipse(0, 3.6 * s, 13 * s, 2.6 * s, 0, 0, Math.PI); ctx.fill();
+  // 은빛 하이라이트 + 연한 점무늬
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath(); ctx.ellipse(2 * s, -2.5 * s, 11 * s, 2 * s, -0.06, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(250,235,225,0.75)';
+  for (const [px, py] of [[-9, -2], [-4, -3.5], [2, -3], [7, -2.2], [-6, 1], [1, 0.5], [9, 0]]) {
+    ctx.beginPath(); ctx.arc(px * s, py * s, 0.85 * s, 0, Math.PI * 2); ctx.fill();
+  }
+  shade(ctx, () => ellipsePath(ctx, 2 * s, 2.5 * s, 13 * s, 3.4 * s), 0.13);
+  // 등지느러미 + 기름지느러미(연어과 시그니처)
+  outline(ctx, STROKE.part * s);
+  ctx.fillStyle = '#7A96A8';
+  ctx.beginPath(); ctx.moveTo(-3 * s, -5.8 * s); ctx.quadraticCurveTo(1 * s, -9.5 * s, 5 * s, -5.6 * s); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(-10 * s, -4.4 * s, 1.6 * s, 1.1 * s, 0.3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  eye(ctx, 13 * s, -2.2 * s, 2.2 * s);
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------------------
 export const SPECIES = [
   // 얕은 바다 (8종)
@@ -1561,6 +2104,21 @@ export const SPECIES = [
   { id: 'yeticrab', name: '열수유황게', zone: 'vent', weight: 3, size: 1.0, swayAmp: 2, swayPeriod: 3.8, glowing: false, draw: drawYetiCrab },
   { id: 'dandelionjelly', name: '민들레해파리', zone: 'vent', weight: 2, size: 1.1, swayAmp: 6, swayPeriod: 3.2, glowing: true, draw: drawDandelionJelly },
   { id: 'scalyfootsnail', name: '스케일풋 고둥', zone: 'vent', weight: 2, size: 1.0, swayAmp: 1, swayPeriod: 5.0, glowing: false, draw: drawScalyfootSnail },
+
+  // ---- 나라별 고유종 (1.1 확장) — siteOnly: 해당 다이빙 스팟에서만 스폰 ----
+  { id: 'damselfish', name: '자리돔', zone: 'shallow', weight: 7, size: 0.8, swayAmp: 9, swayPeriod: 1.9, glowing: false, draw: drawDamselfish, siteOnly: 'jeju', country: 'KR' },
+  { id: 'scorpionfish', name: '쏨뱅이', zone: 'shallow', weight: 5, size: 1.1, swayAmp: 2, swayPeriod: 4.2, glowing: false, draw: drawScorpionfish, siteOnly: 'jeju', country: 'KR' },
+  { id: 'softcoral', name: '연산호', zone: 'shallow', weight: 5, size: 1.2, swayAmp: 1.5, swayPeriod: 4.6, glowing: false, draw: drawSoftCoral, siteOnly: 'jeju', country: 'KR' },
+  { id: 'napoleonfish', name: '나폴레옹피시', zone: 'shallow', weight: 6, size: 1.6, swayAmp: 5, swayPeriod: 3.2, glowing: false, draw: drawNapoleonfish, siteOnly: 'okinawa', country: 'JP' },
+  { id: 'ribboneel', name: '리본장어', zone: 'shallow', weight: 6, size: 1.0, swayAmp: 6, swayPeriod: 2.4, glowing: false, draw: drawRibbonEel, siteOnly: 'okinawa', country: 'JP' },
+  { id: 'blindcavefish', name: '블라인드 케이브피시', zone: 'shallow', weight: 7, size: 0.9, swayAmp: 7, swayPeriod: 2.0, glowing: false, draw: drawBlindCavefish, siteOnly: 'cenote', country: 'MX' },
+  { id: 'mandarinfish', name: '만다린피시', zone: 'shallow', weight: 6, size: 0.85, swayAmp: 6, swayPeriod: 2.2, glowing: false, draw: drawMandarinfish, siteOnly: 'rajaampat', country: 'ID' },
+  { id: 'pygmyseahorse', name: '피그미 해마', zone: 'shallow', weight: 5, size: 0.7, swayAmp: 4, swayPeriod: 3.0, glowing: false, draw: drawPygmySeahorse, siteOnly: 'rajaampat', country: 'ID' },
+  { id: 'mantaray', name: '만타레이', zone: 'shallow', weight: 6, size: 1.7, swayAmp: 6, swayPeriod: 3.6, glowing: false, draw: drawMantaRay, siteOnly: 'maldives', country: 'MV' },
+  { id: 'whaleshark', name: '고래상어', zone: 'shallow', weight: 5, size: 1.9, swayAmp: 4, swayPeriod: 4.0, glowing: false, draw: drawWhaleShark, siteOnly: 'maldives', country: 'MV' },
+  { id: 'marineiguana', name: '바다이구아나', zone: 'shallow', weight: 6, size: 1.1, swayAmp: 5, swayPeriod: 2.8, glowing: false, draw: drawMarineIguana, siteOnly: 'galapagos', country: 'EC' },
+  { id: 'galapagosshark', name: '갈라파고스 상어', zone: 'twilight', weight: 7, size: 1.5, swayAmp: 6, swayPeriod: 3.0, glowing: false, draw: drawGalapagosShark, siteOnly: 'galapagos', country: 'EC' },
+  { id: 'arcticchar', name: '북극 곤들매기', zone: 'shallow', weight: 7, size: 1.0, swayAmp: 7, swayPeriod: 2.2, glowing: false, draw: drawArcticChar, siteOnly: 'silfra', country: 'IS' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1600,8 +2158,9 @@ export function speciesGlowSpots(id) {
   return GLOW_SPOTS[id] || null;
 }
 
-export function speciesPoolForZone(zoneId) {
-  return SPECIES.filter(sp => sp.zone === zoneId);
+// siteId(옵션): 현재 다이빙 스팟 id — siteOnly 종은 자기 스팟에서만 풀에 들어간다.
+export function speciesPoolForZone(zoneId, siteId = null) {
+  return SPECIES.filter(sp => sp.zone === zoneId && (!sp.siteOnly || sp.siteOnly === siteId));
 }
 
 export function speciesById(id) {
@@ -1611,8 +2170,8 @@ export function speciesById(id) {
 // 구역별 가중치 스폰 + "골고루 등장" 보정
 // - 오래 안 나온 종일수록 실제 뽑힐 확률이 급격히 올라가 30~60초 내 최소 1회 등장을 보장
 // - 방금 나온 종은 크게 억제해 같은 종 연속 반복을 방지
-export function pickSpeciesForZone(zoneId, lastSpawnAt, lastSpeciesId, timeSec) {
-  const pool = speciesPoolForZone(zoneId);
+export function pickSpeciesForZone(zoneId, lastSpawnAt, lastSpeciesId, timeSec, siteId = null) {
+  const pool = speciesPoolForZone(zoneId, siteId);
   if (pool.length === 0) return null;
   const entries = pool.map(sp => {
     const last = lastSpawnAt[sp.id] ?? -999;
