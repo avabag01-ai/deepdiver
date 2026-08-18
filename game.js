@@ -1273,8 +1273,10 @@ function loop(ts) {
   const dtSec = dtMs / 1000; // 밀리초 → 초 정규화 (필수)
 
   if (screen === 'globe') {
-    updateGlobeIdleSpin(globeState, dtSec);
-    state.timeSec += dtSec; // 별 트윙클/행성 시차용 시계는 계속 흐르게 함
+    // 탭이 백그라운드였다 돌아오면 dt가 수 초로 튀어 지구본이 훌쩍 돌아가 버림 — 클램프
+    const dtG = clamp(dtSec, 0, 0.05);
+    updateGlobeIdleSpin(globeState, dtG);
+    state.timeSec += dtG; // 별 트윙클/행성 시차용 시계는 계속 흐르게 함
     renderGlobeScreen();
   } else {
     if (state.running && !state.over && !state.cleared) {

@@ -297,24 +297,26 @@ export function createGlobeState() {
 }
 
 // 위/경도 → 화면 좌표 + 깊이(z) + 크기 배율.
-// 중요: 이 투영은 아래 스트립 워핑(텍스처를 세로 슬라이스로 구체에 입히는 방식)과
-// 완전히 같은 수식이어야 핀이 나라 위에 정확히 선다 — 절대 한쪽만 바꾸지 말 것.
-// 모델: x = R·sin(Δλ), y = cy − (lat/90 − rotLat/90°)·R·cos(Δλ) (위도는 선형 근사)
+// 중요: 이 투영은 아래 스트립 워핑(정투영-y 텍스처 + 세로 슬라이스)과 완전히 같은
+// 수식이어야 핀이 나라 위에 정확히 선다 — 절대 한쪽만 바꾸지 말 것.
+// 모델: x = cx + R·sin(Δλ), y = cy − R·sin(φ − φ0) — 위도 곡률(sin) 반영,
+// 틸트(φ0=rotLat)는 뷰 중심 위도로 처리(텍스처도 같은 기준으로 리샘플됨).
 export function project(lon, lat, rotLon, rotLat, R, cx, cy) {
   let dLon = lon * DEG - rotLon;
   dLon = ((dLon + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
   const cosd = Math.cos(dLon);
   const visible = Math.abs(dLon) < Math.PI / 2;
-  const latShift = rotLat / DEG / 90; // 위도 틸트: 텍스처 y 오프셋 근사
   const x = cx + R * Math.sin(dLon);
-  const y = cy - (lat / 90 - latShift) * R * cosd;
+  const y = cy - R * Math.sin(lat * DEG - rotLat);
   return { x, y, z: visible ? cosd : -1, scale: 0.5 + 0.5 * Math.max(0, cosd) };
 }
 
 // ---------------------------------------------------------------------------
 // 세계지도 텍스처 — 로드 시 1회, 등장방형(2048x1024)에 바다+전 국가 국기 채움+국경 베이크.
 const TEX_W = 2048, TEX_H = 1024;
-let globeTexture = null;
+let equiTexture = null;   // 등장방형 원본 (1회 베이크)
+let orthoTexture = null;  // 정투영-y 리샘플 결과 (틸트 변경 시 재생성)
+let orthoBuiltForLat = null;
 
 function lonToTx(lon) { return ((lon + 180) / 360) * TEX_W; }
 function latToTy(lat) { return ((90 - lat) / 180) * TEX_H; }
@@ -390,35 +392,58 @@ function buildGlobeTexture() {
   return cnv;
 }
 
+// 정투영-y 리샘플: 출력 행 y'가 화면 y_norm = 1 − 2y'/H = sin(φ − φ0)에 대응하는
+// 등장방형 소스 행에서 오도록 세로만 다시 매핑한다 — 위도 곡률(극지방 수축)이
+// 여기서 생기고, 매 프레임 스트립은 가로 워핑만 하면 된다.
+// φ0(뷰 중심 위도)가 바뀌면 재생성해야 하므로 임계값(0.75°)으로 스로틀.
+const ORTHO_BAND = 2; // 리샘플 세로 밴드(px) — 512회 drawImage, 수 ms
+function ensureOrthoTexture(rotLat) {
+  const latDeg = rotLat / DEG;
+  if (orthoTexture && orthoBuiltForLat !== null && Math.abs(latDeg - orthoBuiltForLat) < 0.75) return;
+  if (!equiTexture) equiTexture = buildGlobeTexture();
+  if (!orthoTexture) {
+    orthoTexture = document.createElement('canvas');
+    orthoTexture.width = TEX_W;
+    orthoTexture.height = TEX_H;
+  }
+  const c = orthoTexture.getContext('2d');
+  c.clearRect(0, 0, TEX_W, TEX_H);
+  for (let ty = 0; ty < TEX_H; ty += ORTHO_BAND) {
+    const yNorm = 1 - (2 * (ty + ORTHO_BAND / 2)) / TEX_H; // 화면 위 +1 … 아래 -1
+    const phiDeg = latDeg + Math.asin(clamp(yNorm, -1, 1)) / DEG;
+    // 극 너머(|φ|>90)는 극 가장자리 행을 그대로 늘려 극지 색으로 채움
+    const sy = clamp(((90 - phiDeg) / 180) * TEX_H, 0, TEX_H - 1);
+    c.drawImage(equiTexture, 0, sy, TEX_W, 1, 0, ty, TEX_W, ORTHO_BAND);
+  }
+  orthoBuiltForLat = latDeg;
+}
+
 // 스트립 워핑 — 구체를 세로 슬라이스로 근사해 텍스처를 입힌다 (고전 fake-3D spin).
-// project()와 같은 수식: 슬라이스 Δλ → x = R·sin(Δλ), 높이 = 2R·cos(Δλ),
-// 위도 틸트는 슬라이스 y 오프셋(latShift·h/2)으로.
+// 세로는 정투영-y 텍스처가 이미 맞으므로 모든 스트립이 전체 높이 2R로 그려지고,
+// 구체 원 클리핑이 가장자리를 잘라 구면 실루엣을 만든다.
 // 슬라이스를 "화면 x 2px 간격"으로 잡아 가장자리에서도 높이 변화가 매끄럽다
 // (균등 Δλ 슬라이스는 가장자리에서 계단이 생김). R=153 기준 ~153회 drawImage.
 const SLICE_PX = 2;
 function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
-  if (!globeTexture) globeTexture = buildGlobeTexture();
+  ensureOrthoTexture(rotLat);
   const rotLonDeg = rotLon / DEG;
-  const latShift = rotLat / DEG / 90;
+  const dy = cy - R;
+  const h = 2 * R;
   for (let sx = -R; sx < R; sx += SLICE_PX) {
     const a0 = Math.asin(clamp(sx / R, -1, 1)) / DEG;
     const a1 = Math.asin(clamp((sx + SLICE_PX) / R, -1, 1)) / DEG;
-    const mid = (a0 + a1) / 2;
-    const h = 2 * R * Math.cos(mid * DEG);
-    if (h < 1 || !isFinite(h)) continue;
-    const dy = cy - h / 2 + latShift * (h / 2);
     const x0 = cx + sx;
     // 소스 경도 → 텍스처 u (랩어라운드: 심 걸치면 두 번에 나눠 그림)
     const lon0 = rotLonDeg + a0;
     const u0 = ((lon0 + 180) % 360 + 360) % 360 / 360 * TEX_W;
     const uw = Math.max(0.5, ((a1 - a0) / 360) * TEX_W);
     if (u0 + uw <= TEX_W) {
-      ctx.drawImage(globeTexture, u0, 0, uw, TEX_H, x0, dy, SLICE_PX, h);
+      ctx.drawImage(orthoTexture, u0, 0, uw, TEX_H, x0, dy, SLICE_PX, h);
     } else {
       const w1 = TEX_W - u0;
       const frac = w1 / uw;
-      ctx.drawImage(globeTexture, u0, 0, w1, TEX_H, x0, dy, SLICE_PX * frac, h);
-      ctx.drawImage(globeTexture, 0, 0, uw - w1, TEX_H, x0 + SLICE_PX * frac - 0.3, dy, SLICE_PX * (1 - frac) + 0.3, h);
+      ctx.drawImage(orthoTexture, u0, 0, w1, TEX_H, x0, dy, SLICE_PX * frac, h);
+      ctx.drawImage(orthoTexture, 0, 0, uw - w1, TEX_H, x0 + SLICE_PX * frac - 0.3, dy, SLICE_PX * (1 - frac) + 0.3, h);
     }
   }
 }
@@ -514,7 +539,7 @@ export function attachGlobeDrag(canvasEl, globeState, opts = {}) {
     const dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     globeState.rotLon -= dx * ROT_SPEED;
-    globeState.rotLat = clamp(globeState.rotLat + dy * ROT_SPEED, -70 * DEG, 70 * DEG);
+    globeState.rotLat = clamp(globeState.rotLat + dy * ROT_SPEED, -45 * DEG, 45 * DEG);
   };
   const onUp = () => { dragging = false; globeState.dragging = false; };
 
