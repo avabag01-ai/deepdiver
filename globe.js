@@ -4,6 +4,8 @@
 // 핀은 z값에 비례해 크기를 줄여 "뒤로 갈수록 작아지는" 원근감을 흉내낸다.
 
 import { clamp, hash2 } from './utils.js';
+import { WORLD } from './worlddata.js';
+import { FLAGS, drawFlag } from './flagspecs.js';
 
 export const DEG = Math.PI / 180;
 
@@ -108,31 +110,6 @@ export function drawSpaceBackground(ctx, w, h, timeSec) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 대륙 실루엣 — 정치적/지리적 정확도보다 "알아볼 수 있는 형태"를 우선한
-// 결정적(hand-authored) 위경도 좌표 폴리곤. [lon, lat] 순서.
-const CONTINENTS = [
-  // 북아메리카
-  [[-165,68],[-152,70],[-130,70],[-95,68],[-80,50],[-70,45],[-65,45],[-75,35],
-   [-81,25],[-97,26],[-97,18],[-105,20],[-115,30],[-124,40],[-124,48],[-130,55],[-140,60],[-165,68]],
-  // 남아메리카
-  [[-80,10],[-77,5],[-70,-5],[-70,-18],[-72,-30],[-70,-40],[-68,-50],[-65,-55],
-   [-58,-52],[-53,-35],[-45,-23],[-40,-10],[-50,2],[-60,8],[-72,12],[-80,10]],
-  // 아프리카
-  [[-17,15],[-10,5],[9,4],[9,-5],[12,-18],[18,-34],[26,-34],[33,-25],
-   [40,-15],[43,-2],[51,10],[43,12],[35,15],[32,22],[25,31],[10,37],[0,35],[-10,30],[-17,15]],
-  // 유럽
-  [[-9,43],[-5,48],[2,51],[10,54],[20,55],[30,60],[40,66],[35,55],
-   [30,50],[28,45],[20,42],[14,40],[10,44],[0,44],[-9,43]],
-  // 아시아
-  [[30,45],[40,50],[55,55],[70,60],[90,70],[110,73],[135,73],[150,65],
-   [142,45],[130,40],[122,32],[110,20],[100,10],[95,5],[85,10],[75,10],[68,25],[60,30],[50,30],[35,32],[30,45]],
-  // 동남아/인도
-  [[68,25],[78,8],[80,7],[88,22],[93,20],[98,10],[104,10],[100,20],[92,25],[80,20],[68,25]],
-  // 호주
-  [[113,-22],[122,-18],[130,-12],[137,-12],[142,-11],[145,-17],[150,-22],
-   [153,-28],[150,-34],[145,-38],[140,-38],[135,-35],[129,-32],[122,-34],[115,-33],[113,-26],[113,-22]],
-];
 
 // ---------------------------------------------------------------------------
 // 다이빙 스팟 8곳 — 실제 위/경도 기반, 난이도(목표 수심) 순.
@@ -319,227 +296,137 @@ export function createGlobeState() {
   };
 }
 
-// 위/경도 → 화면 좌표 + 깊이(z, 정면일수록 1에 가까움) + 크기 배율
+// 위/경도 → 화면 좌표 + 깊이(z) + 크기 배율.
+// 중요: 이 투영은 아래 스트립 워핑(텍스처를 세로 슬라이스로 구체에 입히는 방식)과
+// 완전히 같은 수식이어야 핀이 나라 위에 정확히 선다 — 절대 한쪽만 바꾸지 말 것.
+// 모델: x = R·sin(Δλ), y = cy − (lat/90 − rotLat/90°)·R·cos(Δλ) (위도는 선형 근사)
 export function project(lon, lat, rotLon, rotLat, R, cx, cy) {
-  const lambda = lon * DEG - rotLon;
-  const phi = lat * DEG;
-  const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi);
-  const cosL = Math.cos(lambda), sinL = Math.sin(lambda);
-  const cosT = Math.cos(rotLat), sinT = Math.sin(rotLat);
-  const x = cosPhi * sinL;
-  const y = cosT * sinPhi - sinT * cosPhi * cosL;
-  const z = sinT * sinPhi + cosT * cosPhi * cosL;
-  return { x: cx + R * x, y: cy - R * y, z, scale: 0.5 + 0.5 * Math.max(0, z) };
+  let dLon = lon * DEG - rotLon;
+  dLon = ((dLon + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  const cosd = Math.cos(dLon);
+  const visible = Math.abs(dLon) < Math.PI / 2;
+  const latShift = rotLat / DEG / 90; // 위도 틸트: 텍스처 y 오프셋 근사
+  const x = cx + R * Math.sin(dLon);
+  const y = cy - (lat / 90 - latShift) * R * cosd;
+  return { x, y, z: visible ? cosd : -1, scale: 0.5 + 0.5 * Math.max(0, cosd) };
 }
-
-function drawGraticuleLine(ctx, kind, value, rotLon, rotLat, R, cx, cy) {
-  ctx.beginPath();
-  let started = false;
-  const steps = 48;
-  for (let i = 0; i <= steps; i++) {
-    let lon, lat;
-    if (kind === 'meridian') { lat = -90 + (180 * i) / steps; lon = value; }
-    else { lon = -180 + (360 * i) / steps; lat = value; }
-    const p = project(lon, lat, rotLon, rotLat, R, cx, cy);
-    if (p.z > 0.015) {
-      if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
-    } else {
-      started = false;
-    }
-  }
-  ctx.stroke();
-}
-
 
 // ---------------------------------------------------------------------------
-// 다이빙 스팟이 있는 나라의 국기 표현 — 간략화된 나라 경계 폴리곤을 구면 투영해
-// 그리고 내부를 국기 디자인으로 클리핑 채움. "아 저기가 그 나라구나" 수준의
-// 단순화(요철 5~12점). 아주 작은 섬나라(몰디브·벨리즈·팔라우·통가)는 생략하고
-// 핀으로만 표시한다.
-// fill(ctx, b): b = 투영된 폴리곤의 화면 bbox {x,y,w,h} — 클리핑된 상태에서 호출됨.
-const COUNTRY_FLAGS = [
-  {
-    id: 'KR', // 태극기 (흰 바탕 + 태극 원 단순화)
-    poly: [[126.2, 37.8], [127.6, 38.3], [129.0, 38.6], [129.5, 36.5], [129.3, 35.2], [127.8, 34.6], [126.3, 34.5], [126.1, 36.2]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      const cxm = b.x + b.w / 2, cym = b.y + b.h / 2, r = Math.min(b.w, b.h) * 0.28;
-      ctx.fillStyle = '#c8102e';
-      ctx.beginPath(); ctx.arc(cxm, cym, r, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = '#003478';
-      ctx.beginPath(); ctx.arc(cxm, cym, r, 0, Math.PI); ctx.fill();
-    },
-  },
-  {
-    id: 'JP', // 일장기
-    poly: [[130.0, 31.3], [131.8, 33.2], [135.0, 34.2], [138.0, 34.8], [140.6, 35.4], [141.6, 39.0], [140.6, 41.5], [139.4, 38.2], [136.2, 36.2], [132.6, 35.0], [129.8, 33.0]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.fillStyle = '#bc002d';
-      ctx.beginPath(); ctx.arc(b.x + b.w / 2, b.y + b.h / 2, Math.min(b.w, b.h) * 0.24, 0, Math.PI * 2); ctx.fill();
-    },
-  },
-  {
-    id: 'IS', // 아이슬란드 (파랑 + 흰/빨강 북유럽 십자)
-    poly: [[-24.5, 65.5], [-22.0, 66.4], [-18.0, 66.5], [-14.5, 65.8], [-13.8, 64.6], [-16.5, 63.5], [-20.5, 63.4], [-22.7, 64.1]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#02529c'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      const vx = b.x + b.w * 0.38, hy = b.y + b.h * 0.5;
-      ctx.fillStyle = '#f2f2f2';
-      ctx.fillRect(vx - b.w * 0.1, b.y, b.w * 0.2, b.h);
-      ctx.fillRect(b.x, hy - b.h * 0.1, b.w, b.h * 0.2);
-      ctx.fillStyle = '#dc1e35';
-      ctx.fillRect(vx - b.w * 0.05, b.y, b.w * 0.1, b.h);
-      ctx.fillRect(b.x, hy - b.h * 0.05, b.w, b.h * 0.1);
-    },
-  },
-  {
-    id: 'TH', // 태국 (빨-흰-파-흰-빨 가로줄)
-    poly: [[98.4, 19.8], [100.8, 20.3], [101.2, 18.0], [102.6, 16.4], [102.2, 14.5], [100.6, 13.6], [99.2, 10.8], [98.6, 8.4], [98.2, 11.8], [99.4, 13.6], [98.0, 15.2], [97.8, 18.2]],
-    fill(ctx, b) {
-      const rows = [['#a51931', 0.17], ['#f4f5f8', 0.17], ['#2d2a4a', 0.32], ['#f4f5f8', 0.17], ['#a51931', 0.17]];
-      let y = b.y;
-      for (const [c, f] of rows) { ctx.fillStyle = c; ctx.fillRect(b.x, y, b.w, b.h * f + 1); y += b.h * f; }
-    },
-  },
-  {
-    id: 'ID', // 인도네시아 (위 빨강, 아래 흰색) — 군도라 큰 섬 두 개로 표현
-    poly: [[95.5, 5.5], [102.5, 1.5], [106.0, -3.0], [110.5, -7.5], [115.0, -8.5], [114.0, -6.5], [108.5, -5.0], [104.5, -1.0], [98.5, 4.0]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y, b.w, b.h / 2);
-      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y + b.h / 2, b.w, b.h / 2);
-    },
-  },
-  {
-    id: 'MX', // 멕시코 (초-흰-빨 세로 3분할)
-    poly: [[-117.0, 32.5], [-110.0, 31.2], [-104.0, 29.6], [-97.5, 26.0], [-97.2, 22.0], [-94.0, 18.4], [-90.4, 21.0], [-86.8, 21.4], [-89.2, 17.6], [-94.8, 16.2], [-104.8, 19.6], [-114.4, 27.6]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#006847'; ctx.fillRect(b.x, b.y, b.w / 3, b.h);
-      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x + b.w / 3, b.y, b.w / 3, b.h);
-      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x + (b.w * 2) / 3, b.y, b.w / 3, b.h);
-    },
-  },
-  {
-    id: 'EC', // 에콰도르 (노-파-빨 가로, 노랑이 절반)
-    poly: [[-80.9, 1.2], [-78.0, 1.3], [-75.4, -0.5], [-75.6, -3.5], [-79.6, -4.5], [-81.0, -2.4]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#ffd100'; ctx.fillRect(b.x, b.y, b.w, b.h * 0.5);
-      ctx.fillStyle = '#0072ce'; ctx.fillRect(b.x, b.y + b.h * 0.5, b.w, b.h * 0.25);
-      ctx.fillStyle = '#ef3340'; ctx.fillRect(b.x, b.y + b.h * 0.75, b.w, b.h * 0.25);
-    },
-  },
-  {
-    id: 'AU', // 호주 (남색 + 남십자성 별 몇 개로 단순화)
-    poly: [[113.5, -22.0], [114.5, -26.5], [118.0, -32.0], [124.0, -33.5], [129.5, -32.0], [135.5, -34.8], [138.5, -35.5], [141.0, -38.2], [146.5, -39.0], [150.0, -37.2], [153.0, -31.0], [152.5, -26.0], [148.5, -20.0], [145.5, -15.0], [141.5, -13.0], [137.0, -14.5], [132.0, -12.0], [126.5, -14.0], [122.0, -17.5], [117.0, -20.5]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#00247d'; ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.fillStyle = '#f2f2f2';
-      for (const [fx, fy, r] of [[0.72, 0.25, 0.045], [0.78, 0.5, 0.05], [0.68, 0.68, 0.045], [0.55, 0.45, 0.038], [0.3, 0.6, 0.06]]) {
-        ctx.beginPath();
-        ctx.arc(b.x + b.w * fx, b.y + b.h * fy, Math.max(1.1, Math.min(b.w, b.h) * r), 0, Math.PI * 2);
-        ctx.fill();
+// 세계지도 텍스처 — 로드 시 1회, 등장방형(2048x1024)에 바다+전 국가 국기 채움+국경 베이크.
+const TEX_W = 2048, TEX_H = 1024;
+let globeTexture = null;
+
+function lonToTx(lon) { return ((lon + 180) / 360) * TEX_W; }
+function latToTy(lat) { return ((90 - lat) / 180) * TEX_H; }
+
+function buildGlobeTexture() {
+  const cnv = document.createElement('canvas');
+  cnv.width = TEX_W; cnv.height = TEX_H;
+  const c = cnv.getContext('2d');
+
+  // 바다 — 위도에 따른 그라데이션 (적도 청록 → 고위도 짙은 남색)
+  const ocean = c.createLinearGradient(0, 0, 0, TEX_H);
+  ocean.addColorStop(0, '#123a5e');
+  ocean.addColorStop(0.28, '#1c5e8e');
+  ocean.addColorStop(0.5, '#2578a8');
+  ocean.addColorStop(0.72, '#1c5e8e');
+  ocean.addColorStop(1, '#10324f');
+  c.fillStyle = ocean;
+  c.fillRect(0, 0, TEX_W, TEX_H);
+
+  // 각 나라: 폴리곤 경로 → 클리핑 → 국기 채움(나라 전체 bbox 기준) → 이후 국경선
+  const pathCountry = (rings) => {
+    c.beginPath();
+    for (const ring of rings) {
+      for (let i = 0; i < ring.length; i += 2) {
+        const px = lonToTx(ring[i] / 10);
+        const py = latToTy(ring[i + 1] / 10);
+        if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
       }
-    },
-  },
-  {
-    id: 'EG', // 이집트 (빨-흰-검 가로 + 금색 점)
-    poly: [[25.0, 31.5], [32.0, 31.2], [34.2, 30.8], [34.9, 29.2], [34.2, 22.0], [25.0, 22.0]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y, b.w, b.h / 3);
-      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y + b.h / 3, b.w, b.h / 3);
-      ctx.fillStyle = '#2b2b2b'; ctx.fillRect(b.x, b.y + (b.h * 2) / 3, b.w, b.h / 3);
-      ctx.fillStyle = '#c09300';
-      ctx.beginPath(); ctx.arc(b.x + b.w / 2, b.y + b.h / 2, Math.min(b.w, b.h) * 0.08, 0, Math.PI * 2); ctx.fill();
-    },
-  },
-  {
-    id: 'PH', // 필리핀 (흰 삼각 + 파랑/빨강 가로) — 루손 중심 단순화
-    poly: [[119.8, 18.5], [122.2, 18.4], [123.8, 13.5], [126.2, 7.2], [122.2, 5.8], [119.6, 10.5], [120.2, 14.5]],
-    fill(ctx, b) {
-      ctx.fillStyle = '#0038a8'; ctx.fillRect(b.x, b.y, b.w, b.h / 2);
-      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y + b.h / 2, b.w, b.h / 2);
-      ctx.fillStyle = '#f2f2f2';
-      ctx.beginPath();
-      ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + b.w * 0.45, b.y + b.h / 2); ctx.lineTo(b.x, b.y + b.h);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#fcd116';
-      ctx.beginPath(); ctx.arc(b.x + b.w * 0.14, b.y + b.h / 2, Math.min(b.w, b.h) * 0.07, 0, Math.PI * 2); ctx.fill();
-    },
-  },
-];
-
-function drawCountryFlags(ctx, rotLon, rotLat, R, cx, cy) {
-  for (const country of COUNTRY_FLAGS) {
-    const pts = country.poly
-      .map(([lon, lat]) => project(lon, lat, rotLon, rotLat, R, cx, cy))
-      .filter(p => p.z > 0.02);
-    if (pts.length < 3) continue;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of pts) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      c.closePath();
     }
-    const b = { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-    ctx.closePath();
-    ctx.clip();
-    country.fill(ctx, b);
-    ctx.restore();
-    // 윤곽선 (국기 경계 또렷하게)
-    ctx.save();
-    ctx.strokeStyle = 'rgba(15,30,20,0.55)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
+  };
+
+  for (const iso of Object.keys(WORLD)) {
+    const rings = WORLD[iso];
+    // 나라 전체 bbox (군도도 국기 레이아웃 공유)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const ring of rings) {
+      for (let i = 0; i < ring.length; i += 2) {
+        const px = lonToTx(ring[i] / 10), py = latToTy(ring[i + 1] / 10);
+        if (px < minX) minX = px; if (px > maxX) maxX = px;
+        if (py < minY) minY = py; if (py > maxY) maxY = py;
+      }
+    }
+    c.save();
+    pathCountry(rings);
+    c.clip();
+    drawFlag(c, FLAGS[iso], minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY));
+    c.restore();
+  }
+
+  // 채도 살짝 다운 — 국기 모자이크가 원거리에서 노이즈처럼 보이지 않게 톤 통일
+  c.fillStyle = 'rgba(120,150,175,0.14)';
+  c.fillRect(0, 0, TEX_W, TEX_H);
+
+  // 국경선 (살짝 어둡게) — 채도 다운 이후에 그려 또렷하게
+  c.strokeStyle = 'rgba(8,18,28,0.55)';
+  c.lineWidth = 1.1;
+  c.lineJoin = 'round';
+  for (const iso of Object.keys(WORLD)) {
+    pathCountry(WORLD[iso]);
+    c.stroke();
+  }
+
+  // 위선/경선 (희미하게, 텍스처에 베이크 — 매 프레임 비용 0)
+  c.strokeStyle = 'rgba(255,255,255,0.1)';
+  c.lineWidth = 1;
+  for (let lon = -150; lon <= 180; lon += 30) {
+    c.beginPath(); c.moveTo(lonToTx(lon), 0); c.lineTo(lonToTx(lon), TEX_H); c.stroke();
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    c.beginPath(); c.moveTo(0, latToTy(lat)); c.lineTo(TEX_W, latToTy(lat)); c.stroke();
+  }
+  return cnv;
+}
+
+// 스트립 워핑 — 구체를 세로 슬라이스로 근사해 텍스처를 입힌다 (고전 fake-3D spin).
+// project()와 같은 수식: 슬라이스 Δλ → x = R·sin(Δλ), 높이 = 2R·cos(Δλ),
+// 위도 틸트는 슬라이스 y 오프셋(latShift·h/2)으로.
+// 슬라이스를 "화면 x 2px 간격"으로 잡아 가장자리에서도 높이 변화가 매끄럽다
+// (균등 Δλ 슬라이스는 가장자리에서 계단이 생김). R=153 기준 ~153회 drawImage.
+const SLICE_PX = 2;
+function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
+  if (!globeTexture) globeTexture = buildGlobeTexture();
+  const rotLonDeg = rotLon / DEG;
+  const latShift = rotLat / DEG / 90;
+  for (let sx = -R; sx < R; sx += SLICE_PX) {
+    const a0 = Math.asin(clamp(sx / R, -1, 1)) / DEG;
+    const a1 = Math.asin(clamp((sx + SLICE_PX) / R, -1, 1)) / DEG;
+    const mid = (a0 + a1) / 2;
+    const h = 2 * R * Math.cos(mid * DEG);
+    if (h < 1 || !isFinite(h)) continue;
+    const dy = cy - h / 2 + latShift * (h / 2);
+    const x0 = cx + sx;
+    // 소스 경도 → 텍스처 u (랩어라운드: 심 걸치면 두 번에 나눠 그림)
+    const lon0 = rotLonDeg + a0;
+    const u0 = ((lon0 + 180) % 360 + 360) % 360 / 360 * TEX_W;
+    const uw = Math.max(0.5, ((a1 - a0) / 360) * TEX_W);
+    if (u0 + uw <= TEX_W) {
+      ctx.drawImage(globeTexture, u0, 0, uw, TEX_H, x0, dy, SLICE_PX, h);
+    } else {
+      const w1 = TEX_W - u0;
+      const frac = w1 / uw;
+      ctx.drawImage(globeTexture, u0, 0, w1, TEX_H, x0, dy, SLICE_PX * frac, h);
+      ctx.drawImage(globeTexture, 0, 0, uw - w1, TEX_H, x0 + SLICE_PX * frac - 0.3, dy, SLICE_PX * (1 - frac) + 0.3, h);
+    }
   }
 }
 
-function drawContinentPolygons(ctx, rotLon, rotLat, R, cx, cy) {
-  const tracePath = (pts, shrink = 1, ox = 0, oy = 0) => {
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const x = ox + (p.x - ox) * shrink;
-      const y = oy + (p.y - oy) * shrink;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-  };
-  for (const poly of CONTINENTS) {
-    const pts = poly
-      .map(([lon, lat]) => project(lon, lat, rotLon, rotLat, R, cx, cy))
-      .filter(p => p.z > 0.02);
-    if (pts.length < 3) continue;
-    // 본체
-    ctx.fillStyle = '#3f9760';
-    tracePath(pts);
-    ctx.fill();
-    // 내륙 음영: 센트로이드 쪽으로 수축한 폴리곤을 어두운 톤으로 겹쳐
-    // 플랫한 단색 대신 고도감/입체감을 준다 (2단계)
-    let mx = 0, my = 0;
-    for (const p of pts) { mx += p.x; my += p.y; }
-    mx /= pts.length; my /= pts.length;
-    ctx.fillStyle = 'rgba(34,102,58,0.55)';
-    tracePath(pts, 0.66, mx, my);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(22,74,42,0.45)';
-    tracePath(pts, 0.36, mx, my);
-    ctx.fill();
-    // 해안선: 어두운 윤곽 + 그 위 밝은 하이라이트 림 (물과 만나는 경계 강조)
-    tracePath(pts);
-    ctx.strokeStyle = 'rgba(20,50,25,0.6)';
-    ctx.lineWidth = 1.7;
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(214,255,226,0.45)';
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-  }
-}
+
+
+
+
 
 // 지구본 전체를 그린다 — 구체 셰이딩(라디얼 그라디언트) + 경위선 + 대륙 실루엣 + 림 하이라이트.
 // opts.dimUnvisited 등은 이후 단계(핀 상태 표시)에서 확장 예정.
@@ -555,39 +442,46 @@ export function drawGlobe(ctx, cx, cy, R, globeState) {
   ctx.fillStyle = aura;
   ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2); ctx.fill();
 
-  // 구체 베이스 (좌상단 광원 가정 라디얼 그라디언트로 입체감)
-  const grad = ctx.createRadialGradient(cx - R * 0.38, cy - R * 0.42, R * 0.08, cx, cy, R * 1.05);
-  grad.addColorStop(0, '#cdf3ff');
-  grad.addColorStop(0.45, '#5fb8d9');
-  grad.addColorStop(0.8, '#1c6e8f');
-  grad.addColorStop(1, '#0a3247');
-  ctx.fillStyle = grad;
+  // 구체 베이스 — 텍스처가 못 덮는 극지 틈을 채우는 바다색
+  const base = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.1, cx, cy, R * 1.02);
+  base.addColorStop(0, '#2578a8');
+  base.addColorStop(1, '#0a3247');
+  ctx.fillStyle = base;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
 
-  // 이후 그리는 모든 표면 요소(경위선/대륙)는 구체 원 밖으로 새어나가지 않도록 클리핑
+  // 표면: 세계지도 텍스처(국기 모자이크) 스트립 워핑 — 구체 원으로 클리핑
   ctx.save();
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-  ctx.lineWidth = 1;
-  for (let lon = -150; lon <= 180; lon += 30) drawGraticuleLine(ctx, 'meridian', lon, rotLon, rotLat, R, cx, cy);
-  for (let lat = -60; lat <= 60; lat += 30) drawGraticuleLine(ctx, 'parallel', lat, rotLon, rotLat, R, cx, cy);
+  // 구면 셰이딩 1: 좌상단 광원 하이라이트 (은은한 스페큘러)
+  const lightG = ctx.createRadialGradient(cx - R * 0.42, cy - R * 0.46, R * 0.05, cx - R * 0.2, cy - R * 0.2, R * 1.0);
+  lightG.addColorStop(0, 'rgba(255,255,255,0.32)');
+  lightG.addColorStop(0.35, 'rgba(255,255,255,0.1)');
+  lightG.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = lightG;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
 
-  drawContinentPolygons(ctx, rotLon, rotLat, R, cx, cy);
-  drawCountryFlags(ctx, rotLon, rotLat, R, cx, cy);
-
-  // 구체 그림자(우하단이 살짝 어둡게, 조명 방향과 반대쪽)
+  // 구면 셰이딩 2: 우하단 그림자 (조명 반대쪽 감쇠)
   const shadow = ctx.createRadialGradient(cx + R * 0.45, cy + R * 0.5, R * 0.1, cx, cy, R * 1.1);
-  shadow.addColorStop(0, 'rgba(0,0,0,0.28)');
+  shadow.addColorStop(0, 'rgba(0,0,0,0.34)');
   shadow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = shadow;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+
+  // 구면 셰이딩 3: 가장자리 감쇠(구형 볼륨감) — 가장자리로 갈수록 어둡게
+  const edge = ctx.createRadialGradient(cx, cy, R * 0.62, cx, cy, R);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.8, 'rgba(4,10,20,0.18)');
+  edge.addColorStop(1, 'rgba(4,10,20,0.44)');
+  ctx.fillStyle = edge;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
 
   ctx.restore(); // 클리핑 해제
 
   // 테두리 림 라이트 (구체 윤곽을 또렷하게)
-  ctx.strokeStyle = 'rgba(220,245,255,0.55)';
-  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = 'rgba(220,245,255,0.6)';
+  ctx.lineWidth = 1.6;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
 
   ctx.restore();

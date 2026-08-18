@@ -100,8 +100,9 @@ const siteStatusEl = document.getElementById('siteStatus');
 const btnDiveStart = document.getElementById('btnDiveStart');
 
 const GLOBE_CX = globeCanvas.width / 2;
-const GLOBE_CY = globeCanvas.height * 0.46;
-const GLOBE_R = Math.min(globeCanvas.width, globeCanvas.height) * 0.37;
+const GLOBE_CY = globeCanvas.height * 0.5;
+// 화면 폭의 ~90%까지 확대 (지구본 대격상 — 국기 모자이크가 주인공)
+const GLOBE_R = globeCanvas.width * 0.45;
 
 const globeState = createGlobeState();
 let clearedSet = loadClearedSet();
