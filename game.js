@@ -101,8 +101,9 @@ const btnDiveStart = document.getElementById('btnDiveStart');
 
 const GLOBE_CX = globeCanvas.width / 2;
 const GLOBE_CY = globeCanvas.height * 0.5;
-// 화면 폭의 ~90%까지 확대 (지구본 대격상 — 국기 모자이크가 주인공)
-const GLOBE_R = globeCanvas.width * 0.45;
+// 기본 지름 = 화면 폭의 ~110% (좌우 살짝 잘리는 구도 — 사용자 승인), 줌 1.0~2.5x
+const GLOBE_BASE_R = globeCanvas.width * 0.55;
+const globeR = () => GLOBE_BASE_R * (globeState.zoom || 1);
 
 const globeState = createGlobeState();
 let clearedSet = loadClearedSet();
@@ -222,7 +223,7 @@ globeCanvas.addEventListener('pointermove', (e) => {
 globeCanvas.addEventListener('pointerup', (e) => {
   if (pinMoved) return; // 드래그였으면 탭으로 취급하지 않음
   const p = globeLocalXY(e);
-  const hit = hitTestPins(lastProjectedPins, p.x, p.y);
+  const hit = hitTestPins(lastProjectedPins, p.x, p.y, globeState.zoom || 1);
   if (hit) sound.playClick();
   selectedPin = hit || null;
   updateSiteCardUI();
@@ -410,9 +411,10 @@ btnShopFromOver.addEventListener('click', () => {
 function renderGlobeScreen() {
   globeCtx.clearRect(0, 0, globeCanvas.width, globeCanvas.height);
   drawSpaceBackground(globeCtx, globeCanvas.width, globeCanvas.height, state.timeSec);
-  drawGlobe(globeCtx, GLOBE_CX, GLOBE_CY, GLOBE_R, globeState);
-  lastProjectedPins = projectSites(GLOBE_CX, GLOBE_CY, GLOBE_R, globeState, DIVE_SITES);
-  drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES, state.timeSec);
+  const R = globeR();
+  drawGlobe(globeCtx, GLOBE_CX, GLOBE_CY, R, globeState);
+  lastProjectedPins = projectSites(GLOBE_CX, GLOBE_CY, R, globeState, DIVE_SITES);
+  drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES, state.timeSec, globeState.zoom || 1);
 }
 
 function showGlobeScreen() {

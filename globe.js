@@ -293,6 +293,8 @@ export function createGlobeState() {
     rotLon: 145 * DEG, // 태평양 다이빙 스팟들이 잘 보이는 초기 시점
     rotLat: GLOBE_TILT, // 고정 틸트 (변경 금지 — LUT/project와 결합)
     spinVel: 0.15 * DEG, // 유휴 상태에서 천천히 자동 회전 (초당 라디안)
+    zoom: 1,            // 1.0 ~ 2.5 (핀치/휠)
+    zoomChangedAt: 0,   // LUT 재계산 디바운스 기준 시각
   };
 }
 
@@ -318,7 +320,7 @@ export function project(lon, lat, rotLon, rotLat, R, cx, cy) {
 
 // ---------------------------------------------------------------------------
 // 세계지도 텍스처 — 로드 시 1회, 등장방형(2048x1024)에 바다+전 국가 국기 채움+국경 베이크.
-const TEX_W = 2048, TEX_H = 1024;
+const TEX_W = 4096, TEX_H = 2048; // 줌 2.5x에서도 뭉개지지 않게 상향 (RGBA 32MB)
 let equiTexture = null;   // 등장방형 원본 (1회 베이크)
 
 // 실제 지형 음영기복 + 해저 지형 (Natural Earth GRAY_50M_SR_OB 다운샘플, 퍼블릭 도메인).
@@ -423,7 +425,7 @@ function buildGlobeTexture() {
 
   // 국경선 (살짝 어둡게) — 채도 다운 이후에 그려 또렷하게
   c.strokeStyle = 'rgba(8,18,28,0.55)';
-  c.lineWidth = 1.1;
+  c.lineWidth = 2; // 4096px 텍스처 기준
   c.lineJoin = 'round';
   for (const iso of Object.keys(WORLD)) {
     pathCountry(WORLD[iso]);
@@ -432,7 +434,7 @@ function buildGlobeTexture() {
 
   // 위선/경선 (희미하게, 텍스처에 베이크 — 매 프레임 비용 0)
   c.strokeStyle = 'rgba(255,255,255,0.1)';
-  c.lineWidth = 1;
+  c.lineWidth = 1.6;
   for (let lon = -150; lon <= 180; lon += 30) {
     c.beginPath(); c.moveTo(lonToTx(lon), 0); c.lineTo(lonToTx(lon), TEX_H); c.stroke();
   }
@@ -446,14 +448,16 @@ function buildGlobeTexture() {
 // 틸트 φ0가 고정이므로 "화면 픽셀 → (위도 행, 상대 경도)" 매핑은 회전과 무관한 상수.
 // 로드 시 1회 LUT를 만들고, 매 프레임은 경도 오프셋 덧셈 + 픽셀 복사만 한다.
 // 성능 가드: 내부 해상도를 표시 지름의 절반으로 렌더 후 drawImage 업스케일.
-const LON_STEPS = 4096; // 상대 경도 양자화 (2048px 텍스처의 2배 — & 마스크용 2^n)
+const LON_STEPS = 4096; // 상대 경도 양자화 — TEX_W와 1:1 (& 마스크용 2^n)
 let lut = null; // { size, texRowLut: Int32Array, lonLut: Uint16Array }
 let srcPixels = null;   // 등장방형 텍스처의 Uint32 픽셀 버퍼
 let outCanvas = null, outCtx = null, outImage = null, outPixels = null;
 
+export let lutBuildMs = 0; // LUT 재계산 시간 실측 (성능 보고용)
 function ensureLut(internalR) {
   const size = internalR * 2;
   if (lut && lut.size === size) return;
+  const tBuild = performance.now();
   if (!equiTexture) equiTexture = buildGlobeTexture();
   // 소스 픽셀 버퍼 1회 추출
   const sc = equiTexture.getContext('2d');
@@ -480,7 +484,8 @@ function ensureLut(internalR) {
       lonLut[i] = Math.round(((lonFrac % 1) + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
     }
   }
-  lut = { size, texRowLut, lonLut };
+  lut = { size, internalR, texRowLut, lonLut };
+  lutBuildMs = performance.now() - tBuild;
   outCanvas = document.createElement('canvas');
   outCanvas.width = size; outCanvas.height = size;
   outCtx = outCanvas.getContext('2d');
@@ -499,16 +504,19 @@ function renderGlobePixels(rotLon) {
   for (let i = 0; i < n; i++) {
     const row = texRowLut[i];
     if (row < 0) { outPixels[i] = 0; continue; }
-    const texX = ((lonLut[i] + lonOff) & (LON_STEPS - 1)) >> 1; // 4096 → 2048
+    const texX = (lonLut[i] + lonOff) & (LON_STEPS - 1); // TEX_W와 1:1
     outPixels[i] = srcPixels[row + texX];
   }
   outCtx.putImageData(outImage, 0, 0);
   globeFrameMs = performance.now() - t0;
 }
 
-function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
-  const internalR = Math.max(60, Math.round(R * 0.65)); // 지형 디테일용 0.65배 해상도 → 업스케일 (실측 여유 충분)
-  ensureLut(internalR);
+function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, zoomChangedAt = 0) {
+  const targetInternal = Math.max(60, Math.round(R * 0.65)); // 0.65배 해상도 → 업스케일
+  // 줌 제스처 중(마지막 변경 후 120ms 이내)에는 LUT 재계산을 미루고
+  // 기존 렌더 결과를 그냥 확대해서 그린다(약간 흐림 OK) — 끊김 없는 줌.
+  const settled = performance.now() - zoomChangedAt > 120;
+  if (!lut || (lut.internalR !== targetInternal && settled)) ensureLut(targetInternal);
   renderGlobePixels(rotLon);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(outCanvas, cx - R, cy - R, R * 2, R * 2);
@@ -543,7 +551,7 @@ export function drawGlobe(ctx, cx, cy, R, globeState) {
   // 표면: 세계지도 텍스처(국기 모자이크) 스트립 워핑 — 구체 원으로 클리핑
   ctx.save();
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
-  drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat);
+  drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, globeState.zoomChangedAt || 0);
 
   // 구면 셰이딩 1: 좌상단 광원 하이라이트 (은은한 스페큘러)
   const lightG = ctx.createRadialGradient(cx - R * 0.42, cy - R * 0.46, R * 0.05, cx - R * 0.2, cy - R * 0.2, R * 1.0);
@@ -579,8 +587,14 @@ export function drawGlobe(ctx, cx, cy, R, globeState) {
 // 드래그로 경도(좌우)/위도(상하, 제한적) 회전. 손을 떼면 관성 없이 정지(단순화).
 export function attachGlobeDrag(canvasEl, globeState, opts = {}) {
   const ROT_SPEED = opts.rotSpeed ?? 0.0062;
-  let dragging = false;
-  let lastX = 0, lastY = 0;
+  const pointers = new Map(); // pointerId → {x,y}
+  let lastX = 0;
+  let pinchDist = 0;
+
+  const setZoom = (z) => {
+    globeState.zoom = clamp(z, 1, 2.5);
+    globeState.zoomChangedAt = performance.now();
+  };
 
   function toLocal(e) {
     const rect = canvasEl.getBoundingClientRect();
@@ -590,27 +604,57 @@ export function attachGlobeDrag(canvasEl, globeState, opts = {}) {
     };
   }
 
-  const onDown = (e) => {
-    dragging = true;
-    globeState.dragging = true;
-    lastX = e.clientX; lastY = e.clientY;
+  canvasEl.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) {
+      globeState.dragging = true;
+      lastX = e.clientX;
+    } else if (pointers.size === 2) {
+      // 핀치 시작 — 회전 드래그 중단
+      const [a, b] = [...pointers.values()];
+      pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      globeState.dragging = false;
+    }
     canvasEl.setPointerCapture(e.pointerId);
-  };
-  const onMove = (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-    globeState.rotLon -= dx * ROT_SPEED;
-    // 위도 틸트는 고정(GLOBE_TILT) — 픽셀 LUT가 틸트 기준 사전 계산이라 회전은 경도만
-  };
-  const onUp = () => { dragging = false; globeState.dragging = false; };
+  });
 
-  canvasEl.addEventListener('pointerdown', onDown);
-  canvasEl.addEventListener('pointermove', onMove);
+  canvasEl.addEventListener('pointermove', (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDist > 0 && d > 0) setZoom((globeState.zoom || 1) * (d / pinchDist));
+      pinchDist = d;
+    } else if (globeState.dragging) {
+      const dx = e.clientX - lastX;
+      lastX = e.clientX;
+      // 줌 상태에선 화면상 같은 거리가 더 좁은 경도라 감도를 줌으로 나눔
+      globeState.rotLon -= (dx * ROT_SPEED) / (globeState.zoom || 1);
+      // 위도 틸트는 고정(GLOBE_TILT) — 픽셀 LUT가 틸트 기준 사전 계산이라 회전은 경도만
+    }
+  });
+
+  const onUp = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      lastX = [...pointers.values()][0].x; // 남은 손가락 기준으로 회전 이어가기
+      globeState.dragging = true;
+    } else if (pointers.size === 0) {
+      globeState.dragging = false;
+    }
+  };
   canvasEl.addEventListener('pointerup', onUp);
   canvasEl.addEventListener('pointercancel', onUp);
   canvasEl.addEventListener('pointerleave', onUp);
+
+  // 데스크톱: 마우스 휠/트랙패드 줌
+  canvasEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    setZoom((globeState.zoom || 1) * Math.exp(-e.deltaY * 0.0018));
+  }, { passive: false });
 
   return { toLocal };
 }
@@ -675,12 +719,12 @@ const PIN_HEAD_DY = -15;
 // 핀 마커 그리기 — 구글맵식 물방울(teardrop) 핀, 3상태:
 // 잠김(회색+자물쇠) / 도전 가능(노랑+레벨 번호+펄스 글로우) / 클리어(초록+체크).
 // timeSec은 도전 가능 핀의 펄스 애니메이션용 (생략 시 정적).
-export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0) {
+export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0, zoom = 1) {
   for (const p of projected) {
     if (!p.visible) continue;
     const unlocked = isSiteUnlocked(p.index, clearedSet, sites);
     const cleared = clearedSet.has(p.site.id);
-    const s = Math.max(0.5, p.scale);
+    const s = Math.max(0.5, p.scale) * Math.sqrt(zoom || 1); // 줌에 0.5 지수로만 비례
     const headR = PIN_HEAD_R * s;
     const headY = PIN_HEAD_DY * s;
     ctx.save();
@@ -735,11 +779,11 @@ export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0) {
 
 // 탭 좌표(캔버스 로컬 px)에 가장 가까운 핀을 찾는다. 못 찾으면 null.
 // 물방울 핀의 "머리" 중심 기준으로 판정하고, 손가락 탭 여유를 넉넉히 준다.
-export function hitTestPins(projected, x, y) {
+export function hitTestPins(projected, x, y, zoom = 1) {
   let best = null, bestD = Infinity;
   for (const p of projected) {
     if (!p.visible) continue;
-    const s = Math.max(0.5, p.scale);
+    const s = Math.max(0.5, p.scale) * Math.sqrt(zoom || 1);
     const r = PIN_HEAD_R * s + 10;
     const d = Math.hypot(x - p.x, y - (p.y + PIN_HEAD_DY * s));
     if (d < r && d < bestD) { bestD = d; best = p; }
