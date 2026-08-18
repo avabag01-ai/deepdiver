@@ -170,6 +170,13 @@
   }
   #globeTitle h1 { margin: 0; font-size: 21px; letter-spacing: 0.02em; }
   #globeTitle .hint { margin-top: 4px; font-size: 12.5px; opacity: 0.7; }
+  #tierStatus {
+    margin: 7px auto 0; width: fit-content;
+    padding: 4px 12px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; color: #9fe8dc;
+    background: rgba(20, 60, 56, 0.55);
+    border: 1px solid rgba(80, 220, 200, 0.35);
+  }
   canvas#globeCanvas { touch-action: none; }
   #siteCard {
     position: absolute; left: 16px; right: 16px; bottom: 22px;
@@ -187,6 +194,11 @@
   #siteCard .sitePlace { font-size: 12.5px; opacity: 0.7; margin-top: -4px; }
   #siteCard .siteDepth { font-size: 13px; color: #8dd8ff; margin-top: 2px; }
   #siteCard .siteStatus { font-size: 12.5px; margin-top: 2px; }
+  #siteCard .siteExtra { font-size: 11.5px; opacity: 0.85; margin-top: 2px; display: flex; gap: 10px; }
+  #siteCard .siteExtra .tierBadge {
+    padding: 1px 8px; border-radius: 999px; font-weight: 800; font-size: 10.5px;
+    border: 1px solid currentColor;
+  }
   #siteCard .siteStatus.cleared { color: #3fe08a; }
   #siteCard .siteStatus.locked { color: #9aa6b4; }
   #siteCard button {
@@ -430,12 +442,14 @@
     <div id="globeTitle">
       <h1>다이빙 스팟 선택</h1>
       <div class="hint">지구본을 드래그해서 돌리고, 핀을 눌러 선택하세요</div>
+      <div id="tierStatus">-</div>
     </div>
     <canvas id="globeCanvas" width="340" height="500"></canvas>
     <div id="siteCard">
       <div class="siteName" id="siteName">-</div>
       <div class="sitePlace" id="sitePlace">-</div>
       <div class="siteDepth" id="siteDepth">목표 수심 -</div>
+      <div class="siteExtra" id="siteExtra"></div>
       <div class="siteStatus" id="siteStatus"></div>
       <button id="btnDiveStart">다이빙 시작</button>
     </div>

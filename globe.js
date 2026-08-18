@@ -689,16 +689,68 @@ export function saveClearedSet(clearedSet) {
   }
 }
 
-// 인덱스 0(첫 레벨)은 항상 열려 있고, 이후는 "바로 앞 레벨을 클리어했는가"로 잠금 해제된다.
-// 추가 규칙(1.1에서 중간에 새 스팟이 끼어든 것 대비): 본인 또는 더 뒤의 스팟을 이미
-// 클리어했다면 그 앞은 전부 열린 것으로 본다 — 기존 진행자가 퇴행하지 않게.
-export function isSiteUnlocked(index, clearedSet, sites) {
-  if (index <= 0) return true;
-  if (clearedSet.has(sites[index - 1].id) || clearedSet.has(sites[index].id)) return true;
-  for (let i = index + 1; i < sites.length; i++) {
-    if (clearedSet.has(sites[i].id)) return true;
+// ---------------------------------------------------------------------------
+// 수심별 난이도 티어 — 일자 체인 대신 같은 티어 안에서는 자유 선택.
+// 다음 티어는 이전 티어에서 need곳 클리어 시 개방(전부 깰 필요 없음, 과반 수준).
+export const TIERS = [
+  { id: 1, label: '얕은 바다', color: '#3fd0c8', need: 0 },  // 처음부터 전부 개방
+  { id: 2, label: '중층',     color: '#3f8ee0', need: 3 },  // 1티어 3곳 클리어 시
+  { id: 3, label: '심해',     color: '#5a5ae8', need: 3 },  // 2티어 3곳 클리어 시
+  { id: 4, label: '초심해',   color: '#a45ae8', need: 2 },  // 3티어 2곳 클리어 시
+];
+
+// 목표 수심 → 티어 (0~100 / ~700 / ~3000 / 3000+)
+export function tierOfSite(site) {
+  const d = site.targetDepth;
+  if (d <= 100) return 1;
+  if (d <= 700) return 2;
+  if (d <= 3000) return 3;
+  return 4;
+}
+
+export function tierClearCount(tierId, clearedSet, sites) {
+  return sites.filter(s => tierOfSite(s) === tierId && clearedSet.has(s.id)).length;
+}
+
+export function tierSiteCount(tierId, sites) {
+  return sites.filter(s => tierOfSite(s) === tierId).length;
+}
+
+export function isTierUnlocked(tierId, clearedSet, sites) {
+  if (tierId <= 1) return true;
+  // 호환 규칙: 그 티어(또는 더 깊은 티어)를 이미 클리어한 기록이 있으면 개방 유지
+  // — 구버전 일자 체인 저장에서 퇴행하지 않게.
+  for (const s of sites) {
+    if (tierOfSite(s) >= tierId && clearedSet.has(s.id)) return true;
   }
-  return false;
+  const need = TIERS[tierId - 1].need;
+  return tierClearCount(tierId - 1, clearedSet, sites) >= need;
+}
+
+export function isSiteUnlocked(index, clearedSet, sites) {
+  return isTierUnlocked(tierOfSite(sites[index]), clearedSet, sites);
+}
+
+// 잠긴 스팟 안내: "○티어에서 △곳 더 클리어하면 열려요"
+export function unlockHintFor(site, clearedSet, sites) {
+  const t = tierOfSite(site);
+  const prev = TIERS[t - 2]; // 이전 티어 정의
+  const have = tierClearCount(t - 1, clearedSet, sites);
+  const remain = Math.max(0, TIERS[t - 1].need - have);
+  return { tier: TIERS[t - 1], prevTier: prev, remain };
+}
+
+// 다음 잠긴 티어 기준 진행 요약 (상단 표시용)
+export function tierProgressSummary(clearedSet, sites) {
+  for (let t = 2; t <= TIERS.length; t++) {
+    if (!isTierUnlocked(t, clearedSet, sites)) {
+      const prev = TIERS[t - 2];
+      const have = tierClearCount(t - 1, clearedSet, sites);
+      const remain = TIERS[t - 1].need - have;
+      return `${prev.label} ${have}/${tierSiteCount(t - 1, sites)} 클리어 · ${TIERS[t - 1].label}까지 ${remain}곳`;
+    }
+  }
+  return '모든 수심 개방됨 — 어디든 잠수하세요';
 }
 
 // ---------------------------------------------------------------------------
@@ -730,18 +782,20 @@ export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0, zoom = 
     ctx.save();
     ctx.translate(p.x, p.y);
 
+    const tier = TIERS[tierOfSite(p.site) - 1];
     if (unlocked && !cleared) {
-      // 도전 가능한 핀: 펄스 발광 링으로 시선 유도
+      // 도전 가능한 핀: 티어 색 펄스 발광 링
       const pulse = 1 + Math.sin(timeSec * 3 + p.index) * 0.18;
       const glowR = headR * 2 * pulse;
       const g = ctx.createRadialGradient(0, headY, 0, 0, headY, glowR);
-      g.addColorStop(0, 'rgba(255,224,120,0.55)');
-      g.addColorStop(1, 'rgba(255,224,120,0)');
+      g.addColorStop(0, tier.color + '99');
+      g.addColorStop(1, tier.color + '00');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(0, headY, glowR, 0, Math.PI * 2); ctx.fill();
     }
 
-    const color = !unlocked ? '#7a8593' : cleared ? '#3fe08a' : '#ffd34d';
+    // 핀 색 = 티어 색 (잠김은 회색) — 수심 등급이 색만으로 읽히게
+    const color = !unlocked ? '#7a8593' : tier.color;
     // 물방울 핀: 원형 머리 + 스팟 좌표(0,0)로 모이는 꼬리
     ctx.beginPath();
     ctx.arc(0, headY, headR, Math.PI * 0.82, Math.PI * 0.18, false);

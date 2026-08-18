@@ -3,7 +3,7 @@
 // (이전 프로토타입에서 ms를 초처럼 잘못 써서 속도가 폭주하는 버그가 있었음 — 재발 금지)
 
 import { CANVAS_W, CANVAS_H, clamp, weightedPick, randRange, glow } from './utils.js';
-import { zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostProcess } from './zones.js';
+import { ZONES, zoneAt, drawBackground, drawDepthVeil, drawHeadlampDarkness, drawPostProcess } from './zones.js';
 import { speciesById, SPECIES, pickSpeciesForZone, speciesGlowSpots } from './species.js';
 import { createTerrainChunk, createBgChunk, createDistantChunk, drawTerrainChunk, collidesWithTerrain, drawSeafloor, drawShipwreck } from './terrain.js';
 import { createPlayer, attachPlayerInput, updatePlayer, drawPlayer, PLAYER_ANCHOR_Y, PLAYER_RADIUS } from './player.js';
@@ -12,6 +12,7 @@ import {
   createGlobeState, drawGlobe, attachGlobeDrag, updateGlobeIdleSpin, drawSpaceBackground,
   DIVE_SITES, projectSites, drawPins, hitTestPins,
   loadClearedSet, saveClearedSet, isSiteUnlocked,
+  TIERS, tierOfSite, unlockHintFor, tierProgressSummary,
 } from './globe.js';
 import * as sound from './sound.js';
 import { UPGRADES, MAGNET_RADII, loadPearls, savePearls, loadUpgrades, saveUpgrades } from './shop.js';
@@ -162,6 +163,30 @@ function recordObservation(sp) {
   updatePearlUI();
 }
 
+// ---- 스팟별 최고 기록 (한 런의 진주 수집량 최대값) ----
+const BEST_KEY = 'deepdiver.best.v1';
+let bestBySite = {};
+try { bestBySite = JSON.parse(localStorage.getItem(BEST_KEY) || '{}') || {}; } catch (e) { bestBySite = {}; }
+function recordBest(siteId, score) {
+  if (!siteId || !(score > 0)) return;
+  if (!(bestBySite[siteId] >= score)) {
+    bestBySite[siteId] = score;
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(bestBySite)); } catch (e) {}
+  }
+}
+
+// 스팟에서 만날 수 있는 종 중 아직 미관찰인 수 — "어디 갈지 고르는 이유"
+function unobservedCountForSite(site) {
+  const zonesCovered = ZONES.filter(z => z.minDepth < site.targetDepth).map(z => z.id);
+  let n = 0;
+  for (const sp of SPECIES) {
+    if (!zonesCovered.includes(sp.zone)) continue;
+    if (sp.siteOnly && sp.siteOnly !== site.id) continue;
+    if (!observedSet.has(sp.id)) n++;
+  }
+  return n;
+}
+
 // ---- 메타 진행: 진주 재화 + 영구 업그레이드 (localStorage) ----
 let pearlBalance = loadPearls();
 let upgrades = loadUpgrades();
@@ -182,16 +207,27 @@ attachGlobeDrag(globeCanvas, globeState);
 // 확실히 초기화한다. initAudio()는 멱등이라 여러 번 호출해도 안전하다.
 window.addEventListener('pointerdown', () => sound.initAudio(), { once: true });
 
+const siteExtraEl = document.getElementById('siteExtra');
+
 function updateSiteCardUI() {
   if (!selectedPin) { siteCard.classList.remove('show'); return; }
   const { site, index } = selectedPin;
   const unlocked = isSiteUnlocked(index, clearedSet, DIVE_SITES);
   const cleared = clearedSet.has(site.id);
+  const tier = TIERS[tierOfSite(site) - 1];
   siteNameEl.textContent = `${index + 1}. ${site.name}`;
   sitePlaceEl.textContent = site.place;
   siteDepthEl.textContent = `목표 수심 ${site.targetDepth.toLocaleString()} m`;
+  // 티어 뱃지 + 최고 기록 + 미관찰 종 수
+  const best = bestBySite[site.id];
+  const unob = unobservedCountForSite(site);
+  siteExtraEl.innerHTML =
+    `<span class="tierBadge" style="color:${tier.color}">${tier.id}티어 · ${tier.label}</span>` +
+    (best ? `<span>🦪 최고 ${best}</span>` : '') +
+    (unob > 0 ? `<span>📖 미관찰 ${unob}종</span>` : '<span>📖 전부 관찰!</span>');
   if (!unlocked) {
-    siteStatusEl.textContent = '🔒 이전 스팟을 클리어하면 열립니다';
+    const hint = unlockHintFor(site, clearedSet, DIVE_SITES);
+    siteStatusEl.textContent = `🔒 ${hint.prevTier.label}에서 ${hint.remain}곳 더 클리어하면 열려요`;
     siteStatusEl.className = 'siteStatus locked';
     btnDiveStart.style.display = 'none';
   } else {
@@ -417,8 +453,14 @@ function renderGlobeScreen() {
   drawPins(globeCtx, lastProjectedPins, clearedSet, DIVE_SITES, state.timeSec, globeState.zoom || 1);
 }
 
+const tierStatusEl = document.getElementById('tierStatus');
+function updateTierStatus() {
+  tierStatusEl.textContent = tierProgressSummary(clearedSet, DIVE_SITES);
+}
+
 function showGlobeScreen() {
   screen = 'globe';
+  updateTierStatus();
   globeScreen.classList.remove('hide');
   hudEl.style.display = 'none';
   overlay.classList.remove('show');
@@ -720,6 +762,7 @@ function spawnAmbientBubbles(depthM) {
 // 런에서 모은 점수를 진주 잔고에 합산 — 조난이든 클리어든 가져간다(실패해도 전진감)
 function bankRunPearls() {
   const gained = state.score;
+  recordBest(currentSite?.id, gained);
   pearlBalance += gained;
   savePearls(pearlBalance);
   updatePearlUI();
