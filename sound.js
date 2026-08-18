@@ -262,6 +262,51 @@ export function playCreatureHint(intensity = 0.5) {
   osc.start(t); osc.stop(t + 0.6);
 }
 
+// 입수/수면 돌파 스플래시 — 노이즈 버스트(로우패스) + 저음 텀프
+export function playSplash() {
+  if (!actx) return;
+  const t = now();
+  playNoiseBurst(t, 0.35, 0.3, { type: 'lowpass', freq: 900 });
+  playNoiseBurst(t + 0.05, 0.5, 0.12, { type: 'lowpass', freq: 2400 });
+  const osc = actx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(140, t);
+  osc.frequency.exponentialRampToValueAtTime(50, t + 0.18);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.22, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  osc.connect(g).connect(masterGain);
+  osc.start(t); osc.stop(t + 0.24);
+}
+
+// 입수 크로스페이드: 수면 위 밝은 소리 → 수중 먹먹함 (컷오프 스윕 ~0.5초)
+export function surfaceToUnderwater() {
+  if (!actx) return;
+  if (!noiseSource) startAmbience();
+  if (!noiseFilter) return;
+  noiseFilter.frequency.cancelScheduledValues(now());
+  noiseFilter.frequency.setValueAtTime(5500, now()); // 수면 위 밝음에서 시작
+  // 이후 updateAmbience의 setTargetAtTime(τ=0.6)이 깊이에 맞는 컷오프로 스윕
+}
+
+// 갈매기 울음 — 하강 처프 두 번 (수면 귀환 신호)
+export function playGull() {
+  if (!actx) return;
+  const t = now();
+  for (const dt of [0, 0.35]) {
+    const osc = actx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1350, t + dt);
+    osc.frequency.exponentialRampToValueAtTime(750, t + dt + 0.22);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t + dt);
+    g.gain.exponentialRampToValueAtTime(0.08, t + dt + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.26);
+    osc.connect(g).connect(masterGain);
+    osc.start(t + dt); osc.stop(t + dt + 0.3);
+  }
+}
+
 // 레벨 클리어(수면 도달): 밝은 팡파레 + 로우패스 개방
 export function playLevelClearFanfare() {
   if (!actx) return;

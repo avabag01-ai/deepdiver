@@ -15,6 +15,7 @@ import {
   TIERS, tierOfSite, unlockHintFor, tierProgressSummary,
 } from './globe.js';
 import * as sound from './sound.js';
+import { drawBoat, drawSurfaceScene, drawSurfaceApproach, boatStyleForSite, boatAnchors } from './boat.js';
 import { UPGRADES, MAGNET_RADII, loadPearls, savePearls, loadUpgrades, saveUpgrades } from './shop.js';
 import {
   DEX_INFO, rarityOf, ZONE_LABELS, speciesInZone,
@@ -29,6 +30,15 @@ const MAX_HEALTH = 3;
 const INVULN_DURATION = 1.3; // 피격 후 무적 시간(초)
 const SHAKE_DURATION = 0.35;
 const SHAKE_MAG = 7;
+// 보트 인트로/아웃트로 연출 — 인트로는 별도 씬이 아니라 "월드 좌표 깊이 0에 있는
+// 수면/배"를 같은 카메라로 그리는 연속 연출이다 (컷 전환 없음).
+const INTRO_DECK_DUR = 0.95;  // 배 위 백롤 구간 (첫 플레이; 2회차는 짧게)
+const INTRO_RAMP_DUR = 1.2;   // 입수 후 하강 속도가 게임 기본값으로 수렴하는 시간
+const OUTRO_DUR = 3.4;
+const INTRO_SEEN_KEY = 'deepdiver.introseen.v1';
+const BOAT_X = CANVAS_W * 0.62;
+const INTRO_WATER_Y = CANVAS_H * 0.34; // 수면(깊이 0)의 기준 화면 y — 스크롤과 함께 위로 빠져나감
+
 const HEART_FULL = '❤️';
 const HEART_EMPTY = '🖤';
 
@@ -507,7 +517,15 @@ function makeInitialState() {
     over: false,
     cleared: false,
     targetDepthM: null, // 선택한 다이빙 스팟의 목표 수심 — 지구본 없이 진입 시 null
-    phase: 'descending', // 'descending' | 'ascending' — 바닥의 보물을 얻으면 ascending으로 전환
+    phase: 'descending', // 'intro'(배 위) | 'descending' | 'ascending' | 'outro'
+    introT: 0,
+    rampT: null,          // 입수 직후 하강 가속→기본 속도 수렴 구간 타이머
+    introFF: false,       // 탭 스킵: 순간이동 대신 빠르게 감기
+    outroT: 0,
+    introSplashed: false,
+    outroSplashed: false,
+    outroFromX: CANVAS_W / 2,
+    outroFromY: PLAYER_ANCHOR_Y,
     scrollDir: 1,         // 1=하강(월드가 위로 흐름), -1=상승(월드가 아래로 흐름)
     floorReached: false,  // 바닥(보물) 스폰 여부 — 한 레벨에 한 번만
     floorY: null,         // 바닥이 스크롤되는 화면상 y좌표 (floorReached일 때만 사용)
@@ -561,6 +579,14 @@ function makeInitialState() {
 let state = makeInitialState();
 const player = createPlayer();
 attachPlayerInput(player, canvas);
+// 인트로/아웃트로 탭 스킵 — 순간이동 대신 빠르게 감아서 연속성 유지
+canvas.addEventListener('pointerdown', () => {
+  if (state.phase === 'intro' || (state.rampT !== null && state.rampT < INTRO_RAMP_DUR)) {
+    state.introFF = true;
+  } else if (state.phase === 'outro' && state.outroT > 0.4) {
+    state.outroT = OUTRO_DUR;
+  }
+});
 
 function currentDepthM() {
   return state.totalScrollPx / PX_PER_METER;
@@ -832,6 +858,47 @@ function reachFloor() {
   state.items.push(createItem('treasure', CANVAS_W / 2, state.floorY - 40, zoneId));
 }
 
+// 아웃트로 다이버의 시간별 위치/자세 — update(스플래시 타이밍 판정)와 render가 반드시
+// 같은 식을 써야 이음매가 안 생기므로 한 곳에 모아둔다.
+// 시작점은 아웃트로 진입 순간의 실제 플레이어 좌표라, 상승 마지막 프레임에서 튀지 않는다.
+const T_RISE = 0.55;   // 물속 → 솟구쳐 수면 돌파 (정점)
+const T_FALL = 0.95;   // 정점 → 수면에 착수
+const T_SWIM = 1.95;   // 수면을 헤엄쳐 사다리까지
+const T_CLIMB = 2.65;  // 사다리 오르기
+const T_POSE = 3.05;   // 갑판 위 승리 포즈 완성
+function outroPose(t) {
+  const waterY = INTRO_WATER_Y;
+  const bob = Math.sin(state.timeSec * 1.6) * 2.5;
+  const a = boatAnchors(boatStyleForSite(currentSite));
+  const OUTRO_LADDER_X = BOAT_X + a.ladderX;
+  const x0 = state.outroFromX, y0 = state.outroFromY;
+  const peakY = waterY - 30;
+  const floatY = waterY + 10;
+  const deckY = waterY + a.deckY;
+  if (t < T_RISE) { // 솟구침 (ease-out — 물 밖으로 나오며 감속)
+    const k = clamp(t / T_RISE, 0, 1);
+    const e = 1 - (1 - k) * (1 - k);
+    return { x: x0, y: y0 + (peakY - y0) * e, rot: 0 };
+  }
+  if (t < T_FALL) { // 착수 (ease-in — 중력)
+    const k = (t - T_RISE) / (T_FALL - T_RISE);
+    const e = k * k;
+    return { x: x0 + (OUTRO_LADDER_X - x0) * 0.25 * k, y: peakY + (floatY - peakY) * e, rot: 0.9 * k };
+  }
+  if (t < T_SWIM) { // 수면 유영
+    const k = (t - T_FALL) / (T_SWIM - T_FALL);
+    const xs = x0 + (OUTRO_LADDER_X - x0) * 0.25;
+    return { x: xs + (OUTRO_LADDER_X - xs) * k, y: floatY + Math.sin(state.timeSec * 3) * 1.5 * (1 - k), rot: 0.9 };
+  }
+  if (t < T_CLIMB) { // 사다리 오르기 (수영 자세 → 직립)
+    const k = (t - T_SWIM) / (T_CLIMB - T_SWIM);
+    return { x: OUTRO_LADDER_X, y: floatY + (deckY - floatY) * k + bob * k, rot: 0.9 * (1 - k) };
+  }
+  // 갑판 위 승리 포즈 — 보물을 머리 위로
+  const k = clamp((t - T_CLIMB) / (T_POSE - T_CLIMB), 0, 1);
+  return { x: OUTRO_LADDER_X + 14 * k, y: deckY + bob - 4 * k, rot: 0, pose: k };
+}
+
 // 보물을 획득하면 하강→상승으로 전환. 이제부터 수면(0m)까지 올라가는 게 목표.
 function beginAscent() {
   state.phase = 'ascending';
@@ -868,10 +935,73 @@ function update(dtSecRaw) {
   const dtSec = clamp(dtSecRaw, 0, 0.05);
   state.timeSec += dtSec;
 
+  // ---- 인트로(갑판): 배 위 백롤 — 입수 순간 바로 descending으로 이어져 컷이 없다 ----
+  if (state.phase === 'intro') {
+    state.introT += dtSec * (state.introFF ? 5 : 1); // 스킵 = 빠르게 감기(순간이동 금지)
+    if (state.introT >= INTRO_DECK_DUR) {
+      // 입수: 물보라 + 스플래시 + 수중 로우패스 크로스페이드, 하강 램프 시작
+      state.introSplashed = true;
+      // 물보라는 두 겹(중심 + 옆으로 퍼지는 산포)으로 겹쳐야 첨벙 느낌이 난다
+      const ex = BOAT_X + boatAnchors(boatStyleForSite(currentSite)).entryX;
+      state.bursts.push(createBurst(ex, INTRO_WATER_Y + 8, '#eaf9ff'));
+      state.bursts.push(createBurst(ex + 6, INTRO_WATER_Y + 2, '#ffffff'));
+      state.bubbles.push(...createBubbleColumn(ex, INTRO_WATER_Y + 24, 6, 1.4, 1.3).slice(0, MAX_BUBBLES));
+      sound.playSplash();
+      sound.surfaceToUnderwater();
+      haptic('pickup');
+      state.phase = 'descending';
+      state.rampT = 0;
+      try { localStorage.setItem(INTRO_SEEN_KEY, '1'); } catch (e) {}
+    }
+    for (let i = state.bursts.length - 1; i >= 0; i--) {
+      updateBurst(state.bursts[i], dtSec);
+      if (state.bursts[i].done) state.bursts.splice(i, 1);
+    }
+    updateHud(currentDepthM());
+    return;
+  }
+
+  // ---- 아웃트로: 수면 돌파 → 배 탑승 → 승리 포즈 (탭으로 결과 패널 바로) ----
+  if (state.phase === 'outro') {
+    const prevT = state.outroT;
+    state.outroT += dtSec;
+    // 수면 돌파 순간(다이버 y가 수면을 위로 통과)에 맞춰 물보라 + 로우패스 해제
+    if (!state.outroSplashed) {
+      const before = outroPose(prevT);
+      const after = outroPose(state.outroT);
+      if (before.y > INTRO_WATER_Y && after.y <= INTRO_WATER_Y) {
+        state.outroSplashed = true;
+        state.bursts.push(createBurst(after.x, INTRO_WATER_Y + 4, '#eaf9ff'));
+        state.bursts.push(createBurst(after.x + 5, INTRO_WATER_Y - 2, '#ffffff'));
+        state.bubbles.push(...createBubbleColumn(after.x, INTRO_WATER_Y + 20, 5, 1.2, 1.2).slice(0, MAX_BUBBLES));
+        sound.playSplash();
+        sound.openAmbienceForSurface(); // 수면 돌파 = 로우패스 해제(물 밖 소리)
+        sound.playGull();
+        haptic('success');
+      }
+    }
+    for (let i = state.bursts.length - 1; i >= 0; i--) {
+      updateBurst(state.bursts[i], dtSec);
+      if (state.bursts[i].done) state.bursts.splice(i, 1);
+    }
+    updateBubbles(state.bubbles, dtSec);
+    if (state.outroT >= OUTRO_DUR) clearLevel();
+    updateHud(0);
+    return;
+  }
+
   const depthM = currentDepthM();
   const zone = zoneAt(depthM);
   sound.updateAmbience(depthM, zone.id);
-  const scrollSpeed = scrollSpeedForDepth(depthM);
+  let scrollSpeed = scrollSpeedForDepth(depthM);
+  // 입수 직후: 떨어지는 가속(1.7배)에서 기본 하강 속도로 부드럽게 수렴
+  if (state.rampT !== null && state.rampT < INTRO_RAMP_DUR) {
+    state.rampT += dtSec * (state.introFF ? 3 : 1);
+    const k = clamp(state.rampT / INTRO_RAMP_DUR, 0, 1);
+    const ease = k * k * (3 - 2 * k);
+    scrollSpeed *= 1.7 - 0.7 * ease;
+    if (state.rampT >= INTRO_RAMP_DUR) state.introFF = false;
+  }
   // 부호 있는 스크롤량 — 하강(1)이면 기존과 동일, 상승(-1)이면 부호만 뒤집혀
   // totalScrollPx(=깊이)가 줄어들고, 아래에 있는 "-= scrollPx" 코드들도 그대로
   // 방향이 반전되어 지형/생물이 반대로(아래로) 흐르는 것처럼 보인다.
@@ -883,7 +1013,11 @@ function update(dtSecRaw) {
   // 0이 되어 실패 처리(endGame)됐다면 클리어로 덮어쓰지 않는다.
   if (state.scrollDir < 0 && !state.over && !state.cleared && state.totalScrollPx <= 0) {
     state.totalScrollPx = 0;
-    clearLevel();
+    state.phase = 'outro'; // 수면 돌파 연출 → 배 탑승 → 승리 포즈 → 결과 패널
+    state.outroT = 0;
+    // 연출 시작점 = 마지막 플레이 프레임의 다이버 위치 (여기서 튀면 이음매가 보인다)
+    state.outroFromX = player.x;
+    state.outroFromY = player.y;
     updateHud(0);
     return;
   }
@@ -1176,6 +1310,11 @@ function update(dtSecRaw) {
 }
 
 function updateHud(depthM) {
+  // 인트로~입수 램프 동안 HUD 페이드인
+  let hudOp = 1;
+  if (state.phase === 'intro') hudOp = 0.1;
+  else if (state.rampT !== null && state.rampT < INTRO_RAMP_DUR) hudOp = 0.1 + 0.9 * (state.rampT / INTRO_RAMP_DUR);
+  hudEl.style.opacity = hudOp.toFixed(2);
   hudDepth.textContent = `${Math.max(0, Math.floor(depthM))} m`;
   hudScore.textContent = `🦪 ${state.score}`;
   hudDex.textContent = `도감 ${observedSet.size}/${TOTAL_SPECIES}`;
@@ -1308,19 +1447,96 @@ function render() {
 
   // 헤드램프 글로우는 밝은 표층에선 안 보이고, 어두워질수록 서서히 켜진다
   const lampT = clamp((depthM - 60) / 240, 0, 1);
-  // 무적 시간 동안 다이버를 깜빡여서 피격 후 보호 상태임을 알림
-  if (invulnerable) {
-    const blinkOn = Math.floor(state.timeSec * 10) % 2 === 0;
-    ctx.save();
-    ctx.globalAlpha = blinkOn ? 1 : 0.35;
-    drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
-    ctx.restore();
-  } else {
-    drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
+  const cinematic = state.phase === 'intro' || state.phase === 'outro'
+    || (state.rampT !== null && state.rampT < INTRO_RAMP_DUR && state.phase === 'descending');
+  // 인트로/아웃트로 중엔 본 다이버를 숨기고 연출용 다이버를 오버레이에서 그린다
+  if (!cinematic) {
+    // 무적 시간 동안 다이버를 깜빡여서 피격 후 보호 상태임을 알림
+    if (invulnerable) {
+      const blinkOn = Math.floor(state.timeSec * 10) % 2 === 0;
+      ctx.save();
+      ctx.globalAlpha = blinkOn ? 1 : 0.35;
+      drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
+      ctx.restore();
+    } else {
+      drawPlayer(ctx, player, lampT, currentTheme?.lampColor);
+    }
   }
 
   for (const b of state.bursts) drawBurst(ctx, b);
   drawBubbles(ctx, state.bubbles);
+
+  // 상승 마지막 구간: 위쪽에 수면이 서서히 밝아오며 귀환 신호
+  if (state.phase === 'ascending') drawSurfaceApproach(ctx, depthM, state.timeSec);
+
+  // ---- 수면/배: 월드 좌표 깊이 0의 오브젝트 — 같은 카메라로 그려져 컷이 없다.
+  // 하강하면 스크롤과 함께 화면 위로 자연히 빠져나가고, 상승 복귀 때 다시 내려온다.
+  const surfaceY = INTRO_WATER_Y - state.totalScrollPx;
+  const bob = Math.sin(state.timeSec * 1.6) * 2.5;
+  // 조난(사망) 시엔 배 연출을 보여주지 않는다 — 클리어 보상감과 대비시키기 위함
+  const surfaceVisible = currentSite && surfaceY > -300 && state.phase !== 'outro' && !state.over;
+  if (surfaceVisible) {
+    drawSurfaceScene(ctx, surfaceY, state.timeSec);
+    drawBoat(ctx, BOAT_X, surfaceY - 4 + bob, state.timeSec, boatStyleForSite(currentSite));
+    // 인트로(갑판): 백롤 엔트리 중인 다이버
+    if (state.phase === 'intro') {
+      const rollT = clamp(state.introT / INTRO_DECK_DUR, 0, 1);
+      const e2 = rollT * rollT;
+      const fake = { x: 0, y: 0, vx: 0, vy: 0, facing: 1, swimPhase: state.timeSec, visualYOffset: 0, keys: {}, dragTargetX: null, dragTargetY: null };
+      ctx.save();
+      // 갑판(다이빙 플랫폼) 위에 발이 닿게 서 있다가 뒤로 굴러 수면 바로 아래로
+      const a = boatAnchors(boatStyleForSite(currentSite));
+      ctx.translate(BOAT_X + a.deckX - e2 * 14, surfaceY + a.deckY + bob + e2 * (12 - a.deckY));
+      ctx.rotate(-e2 * 2.4); // 뒤로 구르는 백롤
+      ctx.scale(0.9, 0.9);
+      drawPlayer(ctx, fake, 0);
+      ctx.restore();
+    }
+  }
+  // 입수 직후 램프: 진입점→플레이 위치로 이어지는 다이버 (같은 좌표계, 스왑 티 안 남)
+  if (state.rampT !== null && state.rampT < INTRO_RAMP_DUR && state.phase === 'descending') {
+    const k = clamp(state.rampT / INTRO_RAMP_DUR, 0, 1);
+    const se = k * k * (3 - 2 * k);
+    // 진입점 = 인트로 마지막 프레임의 다이버 위치/자세와 정확히 동일해야 이음매가 없다
+    // (인트로 끝: x=BOAT_X+entryX, y=surfaceY+12+bob, rot=-2.4, scale=0.9)
+    const ex = BOAT_X + boatAnchors(boatStyleForSite(currentSite)).entryX;
+    const ey = surfaceY + 12 + bob; // 진입점도 수면과 함께 위로 흐름
+    const dx = ex + (player.x - ex) * se;
+    const dy = ey + (player.y - ey) * se;
+    const fake = { x: 0, y: 0, vx: 0, vy: 0, facing: 1, swimPhase: state.timeSec, visualYOffset: 0, keys: {}, dragTargetX: null, dragTargetY: null };
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.rotate(-2.4 * (1 - se)); // 입수 회전이 풀리며 유영 자세로
+    const sc = 0.9 + 0.1 * se;
+    ctx.scale(sc, sc);
+    drawPlayer(ctx, fake, 0);
+    ctx.restore();
+  }
+
+  // ---- 아웃트로 오버레이: 수면 돌파 → 배로 헤엄 → 사다리 → 승리 포즈 ----
+  if (state.phase === 'outro') {
+    const t = state.outroT;
+    const waterY = INTRO_WATER_Y; // 상승 중 월드 앵커 수면이 이미 여기 도달해 있음 (연속)
+    const p = outroPose(t);
+    // 하늘/배는 수면 위쪽만 칠하므로, 물속에 있는 동안의 다이버를 가리지 않는다 → 순서 고정
+    drawSurfaceScene(ctx, waterY, state.timeSec);
+    drawBoat(ctx, BOAT_X, waterY - 4 + bob, state.timeSec, boatStyleForSite(currentSite));
+    const fake = { x: 0, y: 0, vx: 0, vy: 0, facing: 1, swimPhase: state.timeSec, visualYOffset: 0, keys: {}, dragTargetX: null, dragTargetY: null };
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    drawPlayer(ctx, fake, 0);
+    // 승리 포즈: 획득한 대형 보물을 머리 위로 (광채와 함께)
+    if (p.pose > 0) {
+      const zoneId = currentSite ? zoneAt(currentSite.targetDepth).id : 'shallow';
+      const ty = -34 - 12 * p.pose;
+      const tr = createItem('treasure', 0, ty, zoneId);
+      glow(ctx, 0, ty, 34, '#ffe27a', (0.4 + Math.sin(state.timeSec * 5) * 0.12) * p.pose);
+      drawItem(ctx, tr, state.timeSec);
+    }
+    ctx.restore();
+    for (const b of state.bursts) drawBurst(ctx, b);
+  }
 
   ctx.restore();
 
@@ -1359,6 +1575,14 @@ function startDive(site) {
   currentTheme = site?.theme ?? null;
   state = makeInitialState();
   state.running = true;
+  // 인트로: 수면(0m)에서 시작하는 실제 스팟 진입일 때만 (개발용 ?depth=는 생략)
+  if (site && state.totalScrollPx === 0) {
+    state.phase = 'intro';
+    let seen = false;
+    try { seen = localStorage.getItem(INTRO_SEEN_KEY) === '1'; } catch (e) {}
+    if (seen) state.introT = INTRO_DECK_DUR - 0.3; // 2회차부터: 입수 직전부터 짧게
+    sound.playGull(); // 수면 위 앰비언스 신호
+  }
   state.targetDepthM = site ? site.targetDepth : null;
   player.x = CANVAS_W / 2;
   player.y = PLAYER_ANCHOR_Y;
