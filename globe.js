@@ -523,10 +523,7 @@ export function drawGlobe(ctx, cx, cy, R, globeState) {
 
   ctx.restore(); // 클리핑 해제
 
-  // 테두리 림 라이트 (구체 윤곽을 또렷하게)
-  ctx.strokeStyle = 'rgba(220,245,255,0.6)';
-  ctx.lineWidth = 1.6;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  // 림 스트로크 없음 — 흰 외곽선이 구체감을 죽여서 제거, 가장자리 감쇠(셰이딩 3)가 윤곽을 대신함
 
   ctx.restore();
 }
