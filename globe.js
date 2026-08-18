@@ -321,6 +321,24 @@ export function project(lon, lat, rotLon, rotLat, R, cx, cy) {
 const TEX_W = 2048, TEX_H = 1024;
 let equiTexture = null;   // 등장방형 원본 (1회 베이크)
 
+// 실제 지형 음영기복 + 해저 지형 (Natural Earth GRAY_50M_SR_OB 다운샘플, 퍼블릭 도메인).
+// 육지 hillshade(북서광)와 바다 수심 셰이딩(해구=어두운 골)이 한 장에 담겨 있다.
+// 비동기 로드라 첫 베이크에 늦으면 릴리프 없이 굽고, 로드 완료 시 재베이크한다.
+const reliefImg = new Image();
+reliefImg.src = 'relief.jpg';
+reliefImg.onload = () => {
+  if (equiTexture) {
+    equiTexture = buildGlobeTexture();
+    refreshSrcPixels();
+  }
+};
+
+function refreshSrcPixels() {
+  if (!equiTexture || typeof srcPixels === 'undefined' || srcPixels === null) return;
+  const sc = equiTexture.getContext('2d');
+  srcPixels = new Uint32Array(sc.getImageData(0, 0, TEX_W, TEX_H).data.buffer);
+}
+
 function lonToTx(lon) { return ((lon + 180) / 360) * TEX_W; }
 function latToTy(lat) { return ((90 - lat) / 180) * TEX_H; }
 
@@ -338,6 +356,21 @@ function buildGlobeTexture() {
   ocean.addColorStop(1, '#10324f');
   c.fillStyle = ocean;
   c.fillRect(0, 0, TEX_W, TEX_H);
+
+  // 바다 수심 셰이딩: 릴리프를 multiply로 강하게 — 대륙붕 밝고 해구는 거의 검은 골.
+  // (육지 부분은 다음 단계의 불투명 국기가 덮으므로 여기선 바다만 영향)
+  const reliefReady = reliefImg.complete && reliefImg.naturalWidth > 0;
+  if (reliefReady) {
+    c.save();
+    c.globalCompositeOperation = 'multiply';
+    c.globalAlpha = 0.62;
+    c.drawImage(reliefImg, 0, 0, TEX_W, TEX_H);
+    // 2차 패스: 해구의 어두운 골을 한 번 더 눌러 심도 대비 강조
+    // (밝은 대륙붕은 거의 영향 없고, 검은 크리즈만 뚜렷해짐)
+    c.globalAlpha = 0.45;
+    c.drawImage(reliefImg, 0, 0, TEX_W, TEX_H);
+    c.restore();
+  }
 
   // 각 나라: 폴리곤 경로 → 클리핑 → 국기 채움(나라 전체 bbox 기준) → 이후 국경선
   const pathCountry = (rings) => {
@@ -373,6 +406,20 @@ function buildGlobeTexture() {
   // 채도 살짝 다운 — 국기 모자이크가 원거리에서 노이즈처럼 보이지 않게 톤 통일
   c.fillStyle = 'rgba(120,150,175,0.14)';
   c.fillRect(0, 0, TEX_W, TEX_H);
+
+  // 육지 음영기복: 국기 위에 저알파 합성 — 국기 가독성이 우선이라 약하게.
+  // multiply(어두운 골) + overlay(밝은 능선) 조합으로 히말라야·안데스·로키가
+  // 명암 굴곡으로 읽히게 한다.
+  if (reliefReady) {
+    c.save();
+    c.globalCompositeOperation = 'multiply';
+    c.globalAlpha = 0.28;
+    c.drawImage(reliefImg, 0, 0, TEX_W, TEX_H);
+    c.globalCompositeOperation = 'overlay';
+    c.globalAlpha = 0.3;
+    c.drawImage(reliefImg, 0, 0, TEX_W, TEX_H);
+    c.restore();
+  }
 
   // 국경선 (살짝 어둡게) — 채도 다운 이후에 그려 또렷하게
   c.strokeStyle = 'rgba(8,18,28,0.55)';
@@ -460,7 +507,7 @@ function renderGlobePixels(rotLon) {
 }
 
 function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
-  const internalR = Math.max(60, Math.round(R * 0.5)); // 절반 해상도 렌더 → 업스케일
+  const internalR = Math.max(60, Math.round(R * 0.65)); // 지형 디테일용 0.65배 해상도 → 업스케일 (실측 여유 충분)
   ensureLut(internalR);
   renderGlobePixels(rotLon);
   ctx.imageSmoothingEnabled = true;

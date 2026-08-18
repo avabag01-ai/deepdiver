@@ -45,4 +45,5 @@ targets:
           mkdir -p "${APP_WEB}"
           cp "${SRCROOT}/../index.html" "${APP_WEB}/"
           cp "${SRCROOT}"/../*.js "${APP_WEB}/"
+          cp "${SRCROOT}"/../*.jpg "${APP_WEB}/" 2>/dev/null || true
         basedOnDependencyAnalysis: false
