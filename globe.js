@@ -453,6 +453,55 @@ let lut = null; // { size, texRowLut: Int32Array, lonLut: Uint16Array }
 let srcPixels = null;   // 등장방형 텍스처의 Uint32 픽셀 버퍼
 let outCanvas = null, outCtx = null, outImage = null, outPixels = null;
 
+// ---- 대기권 구름 레이어 — 절차적 등장방형 알파맵 (이미지 파일 없음) ----
+const CLOUD_W = 1024, CLOUD_H = 512;
+let cloudAlpha = null; // Uint8Array — 픽셀당 구름 불투명도
+
+function cloudHash(x, y) {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h = (h ^ (h >> 13)) | 0;
+  h = Math.imul(h, 1274126177);
+  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+}
+
+function cloudValueNoise(x, y, grid) {
+  const gx = x / grid, gy = y / grid;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const fx = gx - x0, fy = gy - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  // 경도 방향 랩어라운드 (x0+1이 폭을 넘으면 0으로)
+  const nx = Math.ceil(CLOUD_W / grid);
+  const x1 = (x0 + 1) % nx;
+  const v00 = cloudHash(x0, y0), v10 = cloudHash(x1, y0);
+  const v01 = cloudHash(x0, y0 + 1), v11 = cloudHash(x1, y0 + 1);
+  return (v00 + (v10 - v00) * sx) + ((v01 + (v11 - v01) * sx) - (v00 + (v10 - v00) * sx)) * sy;
+}
+
+function buildCloudAlpha() {
+  if (cloudAlpha) return;
+  cloudAlpha = new Uint8Array(CLOUD_W * CLOUD_H);
+  for (let y = 0; y < CLOUD_H; y++) {
+    const lat = 90 - (y / CLOUD_H) * 180;
+    // 위도 밴딩: 적도 수렴대(ITCZ)와 중위도 폭풍대는 구름 많고, 아열대(±25°)는 적음
+    const band =
+      0.55 +
+      0.45 * Math.exp(-((lat / 12) ** 2)) +               // 적도 수렴대
+      0.4 * Math.exp(-(((Math.abs(lat) - 52) / 16) ** 2)) - // 중위도 소용돌이대
+      0.3 * Math.exp(-(((Math.abs(lat) - 25) / 10) ** 2));  // 아열대 건조대
+    for (let x = 0; x < CLOUD_W; x++) {
+      // fbm 4옥타브
+      const n =
+        cloudValueNoise(x, y, 180) * 0.45 +
+        cloudValueNoise(x, y, 80) * 0.28 +
+        cloudValueNoise(x, y, 34) * 0.17 +
+        cloudValueNoise(x, y, 14) * 0.1;
+      const t = (n - 0.52) * 3.2 * band; // 임계 스무스
+      const a = clamp(t, 0, 1);
+      cloudAlpha[y * CLOUD_W + x] = (a * a * (3 - 2 * a) * 150) | 0; // 최대 알파 ~0.59
+    }
+  }
+}
+
 export let lutBuildMs = 0; // LUT 재계산 시간 실측 (성능 보고용)
 function ensureLut(internalR) {
   const size = internalR * 2;
@@ -463,8 +512,10 @@ function ensureLut(internalR) {
   const sc = equiTexture.getContext('2d');
   srcPixels = new Uint32Array(sc.getImageData(0, 0, TEX_W, TEX_H).data.buffer);
 
+  buildCloudAlpha();
   const texRowLut = new Int32Array(size * size);
   const lonLut = new Uint16Array(size * size);
+  const cloudRowLut = new Int32Array(size * size);
   const sinT = Math.sin(GLOBE_TILT), cosT = Math.cos(GLOBE_TILT);
   for (let iy = 0; iy < size; iy++) {
     const ny = (iy + 0.5 - internalR) / internalR; // 화면 아래 +
@@ -480,11 +531,12 @@ function ensureLut(internalR) {
       const lamRel = Math.atan2(nx, cosc * cosT - yUp * sinT); // λ − λ0
       const texY = clamp(Math.round(((90 - phi / DEG) / 180) * (TEX_H - 1)), 0, TEX_H - 1);
       texRowLut[i] = texY * TEX_W;
+      cloudRowLut[i] = Math.min(CLOUD_H - 1, (texY * CLOUD_H / TEX_H) | 0) * CLOUD_W;
       const lonFrac = (lamRel / (Math.PI * 2)) + 0.5; // 0..1 (λ0 기준 -180..180)
       lonLut[i] = Math.round(((lonFrac % 1) + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
     }
   }
-  lut = { size, internalR, texRowLut, lonLut };
+  lut = { size, internalR, texRowLut, lonLut, cloudRowLut };
   lutBuildMs = performance.now() - tBuild;
   outCanvas = document.createElement('canvas');
   outCanvas.width = size; outCanvas.height = size;
@@ -497,15 +549,28 @@ function ensureLut(internalR) {
 export let globeFrameMs = 0; // 성능 계측 (renderGlobeScreen에서 참조 가능)
 function renderGlobePixels(rotLon) {
   const t0 = performance.now();
-  const { size, texRowLut, lonLut } = lut;
+  const { size, texRowLut, lonLut, cloudRowLut } = lut;
   // λ0 오프셋: lonLut은 (λ−λ0) 기준이므로 λ = rel + λ0
   const lonOff = Math.round(((rotLon / (Math.PI * 2)) % 1 + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
+  // 구름은 지표보다 살짝 빠르게(1.15배) + 자체 드리프트 — 회전을 멈춰도 흐른다
+  const cloudLon = rotLon * 1.15 + performance.now() * 0.000012;
+  const cloudOff = Math.round(((cloudLon / (Math.PI * 2)) % 1 + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
   const n = size * size;
   for (let i = 0; i < n; i++) {
     const row = texRowLut[i];
     if (row < 0) { outPixels[i] = 0; continue; }
     const texX = (lonLut[i] + lonOff) & (LON_STEPS - 1); // TEX_W와 1:1
-    outPixels[i] = srcPixels[row + texX];
+    let px = srcPixels[row + texX];
+    // 구름 합성: 흰색 쪽으로 알파 혼합 (조명 명암은 프레임 셰이딩 오버레이가 처리)
+    const ca = cloudAlpha[cloudRowLut[i] + (((lonLut[i] + cloudOff) & (LON_STEPS - 1)) >> 2)];
+    if (ca > 0) {
+      const r = px & 255, g = (px >> 8) & 255, b = (px >> 16) & 255;
+      px = (px & 0xff000000)
+        | ((b + (((255 - b) * ca) >> 8)) << 16)
+        | ((g + (((255 - g) * ca) >> 8)) << 8)
+        | (r + (((255 - r) * ca) >> 8));
+    }
+    outPixels[i] = px;
   }
   outCtx.putImageData(outImage, 0, 0);
   globeFrameMs = performance.now() - t0;
@@ -759,7 +824,11 @@ export function tierProgressSummary(clearedSet, sites) {
 export function projectSites(cx, cy, R, globeState, sites) {
   return sites.map((site, index) => {
     const p = project(site.lon, site.lat, globeState.rotLon, globeState.rotLat, R, cx, cy);
-    return { site, index, x: p.x, y: p.y, z: p.z, scale: p.scale, visible: p.z > 0.02 };
+    // 핀이 구 표면 법선 방향으로 "서 있게" 할 화면상 기울기 각.
+    // 정투영에서 표면 법선의 화면 성분 = 구 중심→핀 방향이므로 그 각도를 쓴다.
+    // (중앙 핀은 수직, 가장자리로 갈수록 바깥으로 기울어짐)
+    const outAng = Math.atan2(p.x - cx, -(p.y - cy)) * Math.min(1, Math.hypot(p.x - cx, p.y - cy) / R);
+    return { site, index, x: p.x, y: p.y, z: p.z, scale: p.scale, visible: p.z > 0.02, outAng };
   });
 }
 
@@ -781,6 +850,19 @@ export function drawPins(ctx, projected, clearedSet, sites, timeSec = 0, zoom = 
     const headY = PIN_HEAD_DY * s;
     ctx.save();
     ctx.translate(p.x, p.y);
+    // 가장자리 페이드 + 대기 감쇠: z가 낮을수록(가장자리) 살짝 어둡고 투명하게
+    const edgeFade = clamp(p.z / 0.15, 0, 1);
+    ctx.globalAlpha = edgeFade * (0.55 + 0.45 * p.z);
+    // 접촉 그림자: 핀이 표면에 닿은 지점의 눌린 타원 (법선 회전 전, 접선 방향)
+    ctx.save();
+    ctx.rotate(p.outAng);
+    ctx.fillStyle = 'rgba(4,10,18,0.38)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, headR * 0.72, headR * 0.26, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // 구 표면 법선 방향으로 세우기 — "구에 꽂힌 핀"의 핵심
+    ctx.rotate(p.outAng);
 
     const tier = TIERS[tierOfSite(p.site) - 1];
     if (unlocked && !cleared) {
@@ -839,7 +921,11 @@ export function hitTestPins(projected, x, y, zoom = 1) {
     if (!p.visible) continue;
     const s = Math.max(0.5, p.scale) * Math.sqrt(zoom || 1);
     const r = PIN_HEAD_R * s + 10;
-    const d = Math.hypot(x - p.x, y - (p.y + PIN_HEAD_DY * s));
+    // 핀 머리는 법선 방향으로 |PIN_HEAD_DY|만큼 떠 있음 (drawPins의 회전과 동일 수식)
+    const lift = -PIN_HEAD_DY * s;
+    const hx = p.x + Math.sin(p.outAng || 0) * lift;
+    const hy = p.y - Math.cos(p.outAng || 0) * lift;
+    const d = Math.hypot(x - hx, y - hy);
     if (d < r && d < bestD) { bestD = d; best = p; }
   }
   return best;
