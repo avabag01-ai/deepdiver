@@ -17,6 +17,7 @@ import * as sound from './sound.js';
 import { UPGRADES, MAGNET_RADII, loadPearls, savePearls, loadUpgrades, saveUpgrades } from './shop.js';
 import {
   DEX_INFO, rarityOf, ZONE_LABELS, speciesInZone,
+  COUNTRIES, speciesInCountry, speciesGlobal,
   loadObservedSet, saveObservedSet, loadDexBonuses, saveDexBonuses, renderSpeciesThumb,
 } from './dex.js';
 
@@ -42,24 +43,26 @@ const DISTANT_SILHOUETTE_BY_ZONE = {
 const CROSSING_SPECIES = new Set([
   'reefshark', 'orca', 'flyingfish', 'bluetang', 'clownfish', 'seaturtle',
   'lanternfish', 'hatchetfish', 'deepoctopus', 'dumbooctopus',
+  // 나라별 고유종 중 유영형
+  'mantaray', 'whaleshark', 'galapagosshark', 'arcticchar', 'napoleonfish', 'marineiguana',
 ]);
 const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률 (좌→우/우→좌 균등)
 
 // ---- 행동 레퍼토리 (종 성격별 배정 — 매복형/고정형은 어디에도 안 들어가 기존 유지) ----
 // 회유(U턴): 가로지르다 완만한 호를 그리며 방향을 되돌리는 유영 생물
-const UTURN_SPECIES = new Set(['seaturtle', 'bluetang', 'lanternfish', 'hatchetfish', 'deepoctopus']);
+const UTURN_SPECIES = new Set(['seaturtle', 'bluetang', 'lanternfish', 'hatchetfish', 'deepoctopus', 'mantaray', 'arcticchar']);
 const UTURN_CHANCE = 0.4;
 // 호버링: 산호 주변에 사는 소형 어류 — 한 지점 주변에서 작은 8자를 그리며 맴돎
-const HOVER_SPECIES = new Set(['clownfish', 'bluetang']);
+const HOVER_SPECIES = new Set(['clownfish', 'bluetang', 'damselfish', 'mandarinfish', 'pygmyseahorse']);
 const HOVER_CHANCE = 0.6;
 // 가속-활공(burst & glide): 꼬리 킥에 맞춰 훅 가속했다가 관성으로 미끄러지는 대형 유영어
 const BURST_GLIDE_SPECIES = new Set(['reefshark', 'orca', 'flyingfish']);
 // 도망 반응: 다이버 접근 시 은은하게 멀어지는 관상용 소형 어류
-const FLEE_SPECIES = new Set(['clownfish', 'bluetang', 'hatchetfish', 'lanternfish', 'dumbooctopus']);
+const FLEE_SPECIES = new Set(['clownfish', 'bluetang', 'hatchetfish', 'lanternfish', 'dumbooctopus', 'damselfish', 'mandarinfish', 'blindcavefish']);
 const FLEE_RADIUS = 85;
 
 // 지나갈 때 가끔 기포를 흘리는 대형 생물 (범고래/상어/거북 등 덩치 큰 종)
-const BIG_BUBBLE_SPECIES = new Set(['orca', 'reefshark', 'seaturtle', 'deepoctopus', 'giantisopod']);
+const BIG_BUBBLE_SPECIES = new Set(['orca', 'reefshark', 'seaturtle', 'deepoctopus', 'giantisopod', 'whaleshark', 'mantaray', 'napoleonfish', 'galapagosshark']);
 const MAX_BUBBLES = 30;
 
 // 네이티브 햅틱 브리지 — iOS 래퍼(WKWebView)에서만 동작, 브라우저에선 무해한 no-op.
@@ -323,36 +326,59 @@ function openDexCard(spId) {
   dexCard.classList.add('show');
 }
 
+let dexMode = 'zone'; // 'zone'(수심별) | 'country'(나라별)
+
+function appendDexSection(label, list) {
+  const seen = list.filter(sp => observedSet.has(sp.id)).length;
+  const title = document.createElement('div');
+  title.className = 'dexZoneTitle';
+  const done = seen === list.length && list.length > 0;
+  title.innerHTML = `<span>${label}</span><span class="zoneCount${done ? ' zoneDone' : ''}">${done ? '완성! 🏅' : `${seen}/${list.length}`}</span>`;
+  dexGridWrap.appendChild(title);
+  const grid = document.createElement('div');
+  grid.className = 'dexGrid';
+  for (const sp of list) {
+    const observed = observedSet.has(sp.id);
+    const cell = document.createElement('div');
+    cell.className = 'dexCell ' + (observed ? 'observed' : 'unobserved');
+    cell.appendChild(getThumb(sp.id, observed));
+    const nm = document.createElement('div');
+    nm.className = 'cellName';
+    nm.textContent = observed ? sp.name : '???';
+    cell.appendChild(nm);
+    if (observed) {
+      cell.addEventListener('click', () => { sound.playClick(); openDexCard(sp.id); });
+    }
+    grid.appendChild(cell);
+  }
+  dexGridWrap.appendChild(grid);
+}
+
 function renderDex() {
   dexProgressEl.textContent = `${observedSet.size}/${TOTAL_SPECIES} 관찰`;
   dexGridWrap.innerHTML = '';
-  for (const zone of ZONE_LABELS) {
-    const list = speciesInZone(zone.id);
-    const seen = list.filter(sp => observedSet.has(sp.id)).length;
-    const title = document.createElement('div');
-    title.className = 'dexZoneTitle';
-    const done = seen === list.length;
-    title.innerHTML = `<span>${zone.label}</span><span class="zoneCount${done ? ' zoneDone' : ''}">${done ? '완성! 🏅' : `${seen}/${list.length}`}</span>`;
-    dexGridWrap.appendChild(title);
-    const grid = document.createElement('div');
-    grid.className = 'dexGrid';
-    for (const sp of list) {
-      const observed = observedSet.has(sp.id);
-      const cell = document.createElement('div');
-      cell.className = 'dexCell ' + (observed ? 'observed' : 'unobserved');
-      cell.appendChild(getThumb(sp.id, observed));
-      const nm = document.createElement('div');
-      nm.className = 'cellName';
-      nm.textContent = observed ? sp.name : '???';
-      cell.appendChild(nm);
-      if (observed) {
-        cell.addEventListener('click', () => { sound.playClick(); openDexCard(sp.id); });
-      }
-      grid.appendChild(cell);
+  if (dexMode === 'zone') {
+    for (const zone of ZONE_LABELS) appendDexSection(zone.label, speciesInZone(zone.id));
+  } else {
+    // 나라별: 국가 고유종 섹션들 + 전 해역(기존 공통종)
+    for (const c of COUNTRIES) {
+      const list = speciesInCountry(c.id);
+      if (list.length) appendDexSection(`${c.flag} ${c.label}`, list);
     }
-    dexGridWrap.appendChild(grid);
+    appendDexSection('🌊 전 해역', speciesGlobal());
   }
 }
+
+const btnDexByZone = document.getElementById('btnDexByZone');
+const btnDexByCountry = document.getElementById('btnDexByCountry');
+function setDexMode(mode) {
+  dexMode = mode;
+  btnDexByZone.classList.toggle('on', mode === 'zone');
+  btnDexByCountry.classList.toggle('on', mode === 'country');
+  renderDex();
+}
+btnDexByZone.addEventListener('click', () => { sound.playClick(); setDexMode('zone'); });
+btnDexByCountry.addEventListener('click', () => { sound.playClick(); setDexMode('country'); });
 
 function openDex() {
   renderDex();
@@ -509,7 +535,7 @@ function farFromOtherCreatures(x, y) {
 function spawnCreature(depthM) {
   if (state.creatures.length >= MAX_ENTITIES_ON_SCREEN) return;
   const zoneId = zoneAt(depthM).id;
-  let sp = pickSpeciesForZone(zoneId, state.speciesLastSpawn, state.lastSpeciesId, state.timeSec);
+  let sp = pickSpeciesForZone(zoneId, state.speciesLastSpawn, state.lastSpeciesId, state.timeSec, currentSite?.id ?? null);
   if (!sp) return;
   // 스팟 테마의 종 가중치: 일정 확률로 바이어스 종 중 하나로 교체 (현재 구역 종만)
   if (currentTheme?.spawnBias && Math.random() < 0.45) {

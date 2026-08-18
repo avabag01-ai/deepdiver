@@ -297,6 +297,16 @@
   #dexHeader h2 { margin: 0; font-size: 17px; }
   #dexProgress { font-size: 13px; font-weight: 800; color: #8dd8ff; }
   #dexGridWrap { flex: 1; overflow-y: auto; }
+  #dexModeToggle { display: flex; gap: 6px; margin-bottom: 4px; }
+  #dexModeToggle button {
+    flex: 1; padding: 6px 0;
+    border-radius: 999px; border: 1px solid rgba(255,255,255,0.18);
+    background: transparent; color: #9ab4c8; font-weight: 700; font-size: 12px;
+  }
+  #dexModeToggle button.on {
+    background: rgba(140,210,255,0.16); color: #cfe8ff;
+    border-color: rgba(140,210,255,0.45);
+  }
   .dexZoneTitle {
     font-size: 12px; font-weight: 800; opacity: 0.8;
     margin: 10px 0 6px; letter-spacing: 0.06em;
@@ -440,7 +450,11 @@
     <div id="dexPanel">
       <div id="dexHeader">
         <h2>📖 관찰 도감</h2>
-        <div id="dexProgress">0/28 관찰</div>
+        <div id="dexProgress">0/41 관찰</div>
+      </div>
+      <div id="dexModeToggle">
+        <button id="btnDexByZone" class="on">수심별</button>
+        <button id="btnDexByCountry">나라별</button>
       </div>
       <div id="dexGridWrap"></div>
       <button id="btnDexClose">닫기</button>
