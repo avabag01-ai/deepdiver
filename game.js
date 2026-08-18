@@ -41,23 +41,37 @@ const DISTANT_SILHOUETTE_BY_ZONE = {
 
 // 열린 바다를 유영하며 화면을 가로질러 지나갈 수 있는 종 — 매복형(바이퍼피시/앵글러 등)이나
 // 고정형 장식(말미잘/산호 등은 애초에 creatures가 아니라 terrain에 구워짐)은 제외.
-const CROSSING_SPECIES = new Set([
-  'reefshark', 'orca', 'flyingfish', 'bluetang', 'clownfish', 'seaturtle',
-  'lanternfish', 'hatchetfish', 'deepoctopus', 'dumbooctopus',
-  // 나라별 고유종 중 유영형
-  'mantaray', 'whaleshark', 'galapagosshark', 'arcticchar', 'napoleonfish', 'marineiguana',
-]);
-const CROSS_CHANCE = 0.4; // 스폰될 때 가로지르기 패턴이 될 확률 (좌→우/우→좌 균등)
+// 유영성 어류는 "화면을 가로질러 지나가는 것"이 기본값.
+// 속도는 species.js의 swimSpeed(px/s, 실제 순항 속도 기반 4단계)에서 오고,
+// 여기는 "가로지르기가 될 확률"만 관리한다. swimSpeed 없는 종(매복·고정·저서)은
+// 자동으로 제자리 유지 — 이 대비가 움직임을 살린다.
+const CROSS_CHANCE_BY = {
+  // 초고속·빠름 순찰자 — 거의 항상 가로지름
+  orca: 0.9, flyingfish: 0.9, reefshark: 0.9, galapagosshark: 0.9,
+  // 보통 유영 어류
+  clownfish: 0.85, bluetang: 0.85, lanternfish: 0.85, hatchetfish: 0.85,
+  napoleonfish: 0.85, ribboneel: 0.85, blindcavefish: 0.85, arcticchar: 0.85,
+  damselfish: 0.6, mandarinfish: 0.35, // 소형 산호어는 일부만
+  // 느긋한 대형/부유 유영자
+  seaturtle: 0.85, mantaray: 0.9, whaleshark: 0.9, marineiguana: 0.85,
+  deepoctopus: 0.75, dumbooctopus: 0.75, ghostoctopus: 0.6, vampiresquid: 0.6,
+  glassshrimp: 0.6, pelicaneel: 0.7, barreleye: 0.7,
+  // 해파리류 — 펄스 추진으로 느리게 흘러감 (방향 개념 약해 반전 무해)
+  moonjelly: 0.5, dandelionjelly: 0.5,
+  // 바이퍼피시 — 매복하다 가끔 순간 스냅으로 가로지름 (burst&glide 강)
+  viperfish: 0.45,
+};
+const CROSSING_SPECIES = new Set(Object.keys(CROSS_CHANCE_BY));
 
 // ---- 행동 레퍼토리 (종 성격별 배정 — 매복형/고정형은 어디에도 안 들어가 기존 유지) ----
 // 회유(U턴): 가로지르다 완만한 호를 그리며 방향을 되돌리는 유영 생물
 const UTURN_SPECIES = new Set(['seaturtle', 'bluetang', 'lanternfish', 'hatchetfish', 'deepoctopus', 'mantaray', 'arcticchar']);
-const UTURN_CHANCE = 0.4;
+const UTURN_CHANCE = 0.22;
 // 호버링: 산호 주변에 사는 소형 어류 — 한 지점 주변에서 작은 8자를 그리며 맴돎
-const HOVER_SPECIES = new Set(['clownfish', 'bluetang', 'damselfish', 'mandarinfish', 'pygmyseahorse']);
+const HOVER_SPECIES = new Set(['damselfish', 'mandarinfish', 'pygmyseahorse']); // 소형 산호어만 제자리 호버링
 const HOVER_CHANCE = 0.6;
 // 가속-활공(burst & glide): 꼬리 킥에 맞춰 훅 가속했다가 관성으로 미끄러지는 대형 유영어
-const BURST_GLIDE_SPECIES = new Set(['reefshark', 'orca', 'flyingfish']);
+const BURST_GLIDE_SPECIES = new Set(['reefshark', 'orca', 'flyingfish', 'galapagosshark', 'viperfish']);
 // 도망 반응: 다이버 접근 시 은은하게 멀어지는 관상용 소형 어류
 const FLEE_SPECIES = new Set(['clownfish', 'bluetang', 'hatchetfish', 'lanternfish', 'dumbooctopus', 'damselfish', 'mandarinfish', 'blindcavefish']);
 const FLEE_RADIUS = 85;
@@ -597,21 +611,25 @@ function spawnCreature(depthM) {
   }
   const r = creatureVisualRadius(sp);
   const margin = r + 6;
-  const spawnY = spawnEdgeY(r);
+  let spawnY = spawnEdgeY(r);
   let crossDir = 0, crossSpeed = 0;
   let x;
   const extra = {};
+  // 가로지르기 개체는 화면 안 임의 높이의 측면에서 진입시켜 "지나가는" 게 눈에 띄게
+  const willCross = sp.swimSpeed && CROSS_CHANCE_BY[sp.id]
+    && (extra._crossRoll = Math.random()) < CROSS_CHANCE_BY[sp.id];
+  if (willCross) spawnY = randRange(CANVAS_H * 0.12, CANVAS_H * 1.02);
   // 유영성 어류/생물 일부는 제자리 sway 대신 화면을 대각선으로 가로지르며 지나가게 한다
   // (고정형/매복형 생물은 CROSSING_SPECIES에 없으므로 항상 기존처럼 제자리 유지)
-  if (CROSSING_SPECIES.has(sp.id) && Math.random() < CROSS_CHANCE) {
+  if (willCross) {
     crossDir = Math.random() < 0.5 ? 1 : -1; // 좌→우 / 우→좌 균등
-    crossSpeed = randRange(16, 38);
+    crossSpeed = sp.swimSpeed * randRange(0.85, 1.15); // 종별 실속도 ±15%
     x = crossDir === 1 ? -r : CANVAS_W + r; // 화면 밖에서 시작해 가로질러 등장 (x 고정)
     if (!farFromOtherCreatures(x, spawnY)) return; // 겹치면 이번 스폰은 건너뜀
     // 회유: 일부는 화면 중간쯤에서 완만한 호를 그리며 되돌아간다
     if (UTURN_SPECIES.has(sp.id) && Math.random() < UTURN_CHANCE) {
-      extra.turnAt = randRange(1.5, 4.0);   // 스폰 후 몇 초 뒤 턴 시작
-      extra.turnDur = randRange(1.8, 2.8);  // 턴에 걸리는 시간 (부드러운 반원)
+      extra.turnAt = randRange(0.9, 2.2);   // 스폰 후 몇 초 뒤 턴 시작 (빨라진 속도 반영)
+      extra.turnDur = randRange(1.4, 2.2);  // 턴에 걸리는 시간 (부드러운 반원)
     }
     if (BURST_GLIDE_SPECIES.has(sp.id)) extra.burstGlide = true;
   } else {
@@ -628,6 +646,7 @@ function spawnCreature(depthM) {
       extra.hoverW = randRange(1.2, 2.2);
     }
   }
+  delete extra._crossRoll;
   state.creatures.push({
     speciesId: sp.id,
     baseX: x,
@@ -1249,10 +1268,10 @@ function render() {
       ctx.translate(px, py);
       if (c.tilt) ctx.rotate(c.tilt);
       if (face === -1) ctx.scale(-1, 1);
-      sp.draw(ctx, 0, 0, state.timeSec + c.spawnT, sp.size);
+      sp.draw(ctx, 0, 0, (state.timeSec + c.spawnT) * (sp.animRate || 1), sp.size);
       ctx.restore();
     } else {
-      sp.draw(ctx, px, py, state.timeSec + c.spawnT, sp.size);
+      sp.draw(ctx, px, py, (state.timeSec + c.spawnT) * (sp.animRate || 1), sp.size);
     }
   }
 
