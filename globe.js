@@ -291,32 +291,35 @@ export const DIVE_SITES = [
 export function createGlobeState() {
   return {
     rotLon: 145 * DEG, // 태평양 다이빙 스팟들이 잘 보이는 초기 시점
-    rotLat: 16 * DEG,
+    rotLat: GLOBE_TILT, // 고정 틸트 (변경 금지 — LUT/project와 결합)
     spinVel: 0.15 * DEG, // 유휴 상태에서 천천히 자동 회전 (초당 라디안)
   };
 }
 
-// 위/경도 → 화면 좌표 + 깊이(z) + 크기 배율.
-// 중요: 이 투영은 아래 스트립 워핑(정투영-y 텍스처 + 세로 슬라이스)과 완전히 같은
-// 수식이어야 핀이 나라 위에 정확히 선다 — 절대 한쪽만 바꾸지 말 것.
-// 모델: x = cx + R·sin(Δλ), y = cy − R·sin(φ − φ0) — 위도 곡률(sin) 반영,
-// 틸트(φ0=rotLat)는 뷰 중심 위도로 처리(텍스처도 같은 기준으로 리샘플됨).
+// 고정 틸트(내려다보는 시점) — "책상 위 지구본" 느낌. 드래그는 경도 회전만.
+// LUT가 이 값 기준으로 사전 계산되므로 런타임에 바꾸면 안 됨.
+export const GLOBE_TILT = 20 * DEG;
+
+// 위/경도 → 화면 좌표 + 깊이(z) + 크기 배율. 진짜 정투영(orthographic):
+//   x = R·cosφ·sin(Δλ),  y = R·(cosφ0·sinφ − sinφ0·cosφ·cosΔλ)
+// 아래 픽셀 LUT 역투영과 정확히 같은 공식 — 핀 정합을 위해 한쪽만 바꾸지 말 것.
 export function project(lon, lat, rotLon, rotLat, R, cx, cy) {
-  let dLon = lon * DEG - rotLon;
-  dLon = ((dLon + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-  const cosd = Math.cos(dLon);
-  const visible = Math.abs(dLon) < Math.PI / 2;
-  const x = cx + R * Math.sin(dLon);
-  const y = cy - R * Math.sin(lat * DEG - rotLat);
-  return { x, y, z: visible ? cosd : -1, scale: 0.5 + 0.5 * Math.max(0, cosd) };
+  const phi0 = GLOBE_TILT; // rotLat 파라미터는 호환용 — 틸트는 고정
+  const lambda = lon * DEG - rotLon;
+  const phi = lat * DEG;
+  const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi);
+  const cosL = Math.cos(lambda), sinL = Math.sin(lambda);
+  const cosT = Math.cos(phi0), sinT = Math.sin(phi0);
+  const x = cosPhi * sinL;
+  const y = cosT * sinPhi - sinT * cosPhi * cosL;
+  const z = sinT * sinPhi + cosT * cosPhi * cosL;
+  return { x: cx + R * x, y: cy - R * y, z, scale: 0.5 + 0.5 * Math.max(0, z) };
 }
 
 // ---------------------------------------------------------------------------
 // 세계지도 텍스처 — 로드 시 1회, 등장방형(2048x1024)에 바다+전 국가 국기 채움+국경 베이크.
 const TEX_W = 2048, TEX_H = 1024;
 let equiTexture = null;   // 등장방형 원본 (1회 베이크)
-let orthoTexture = null;  // 정투영-y 리샘플 결과 (틸트 변경 시 재생성)
-let orthoBuiltForLat = null;
 
 function lonToTx(lon) { return ((lon + 180) / 360) * TEX_W; }
 function latToTy(lat) { return ((90 - lat) / 180) * TEX_H; }
@@ -392,60 +395,76 @@ function buildGlobeTexture() {
   return cnv;
 }
 
-// 정투영-y 리샘플: 출력 행 y'가 화면 y_norm = 1 − 2y'/H = sin(φ − φ0)에 대응하는
-// 등장방형 소스 행에서 오도록 세로만 다시 매핑한다 — 위도 곡률(극지방 수축)이
-// 여기서 생기고, 매 프레임 스트립은 가로 워핑만 하면 된다.
-// φ0(뷰 중심 위도)가 바뀌면 재생성해야 하므로 임계값(0.75°)으로 스로틀.
-const ORTHO_BAND = 2; // 리샘플 세로 밴드(px) — 512회 drawImage, 수 ms
-function ensureOrthoTexture(rotLat) {
-  const latDeg = rotLat / DEG;
-  if (orthoTexture && orthoBuiltForLat !== null && Math.abs(latDeg - orthoBuiltForLat) < 0.75) return;
-  if (!equiTexture) equiTexture = buildGlobeTexture();
-  if (!orthoTexture) {
-    orthoTexture = document.createElement('canvas');
-    orthoTexture.width = TEX_W;
-    orthoTexture.height = TEX_H;
-  }
-  const c = orthoTexture.getContext('2d');
-  c.clearRect(0, 0, TEX_W, TEX_H);
-  for (let ty = 0; ty < TEX_H; ty += ORTHO_BAND) {
-    const yNorm = 1 - (2 * (ty + ORTHO_BAND / 2)) / TEX_H; // 화면 위 +1 … 아래 -1
-    const phiDeg = latDeg + Math.asin(clamp(yNorm, -1, 1)) / DEG;
-    // 극 너머(|φ|>90)는 극 가장자리 행을 그대로 늘려 극지 색으로 채움
-    const sy = clamp(((90 - phiDeg) / 180) * TEX_H, 0, TEX_H - 1);
-    c.drawImage(equiTexture, 0, sy, TEX_W, 1, 0, ty, TEX_W, ORTHO_BAND);
-  }
-  orthoBuiltForLat = latDeg;
-}
+// 픽셀 LUT 역정투영 — 매 프레임 삼각함수 없이 진짜 정투영 지구본을 그린다.
+// 틸트 φ0가 고정이므로 "화면 픽셀 → (위도 행, 상대 경도)" 매핑은 회전과 무관한 상수.
+// 로드 시 1회 LUT를 만들고, 매 프레임은 경도 오프셋 덧셈 + 픽셀 복사만 한다.
+// 성능 가드: 내부 해상도를 표시 지름의 절반으로 렌더 후 drawImage 업스케일.
+const LON_STEPS = 4096; // 상대 경도 양자화 (2048px 텍스처의 2배 — & 마스크용 2^n)
+let lut = null; // { size, texRowLut: Int32Array, lonLut: Uint16Array }
+let srcPixels = null;   // 등장방형 텍스처의 Uint32 픽셀 버퍼
+let outCanvas = null, outCtx = null, outImage = null, outPixels = null;
 
-// 스트립 워핑 — 구체를 세로 슬라이스로 근사해 텍스처를 입힌다 (고전 fake-3D spin).
-// 세로는 정투영-y 텍스처가 이미 맞으므로 모든 스트립이 전체 높이 2R로 그려지고,
-// 구체 원 클리핑이 가장자리를 잘라 구면 실루엣을 만든다.
-// 슬라이스를 "화면 x 2px 간격"으로 잡아 가장자리에서도 높이 변화가 매끄럽다
-// (균등 Δλ 슬라이스는 가장자리에서 계단이 생김). R=153 기준 ~153회 drawImage.
-const SLICE_PX = 2;
-function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
-  ensureOrthoTexture(rotLat);
-  const rotLonDeg = rotLon / DEG;
-  const dy = cy - R;
-  const h = 2 * R;
-  for (let sx = -R; sx < R; sx += SLICE_PX) {
-    const a0 = Math.asin(clamp(sx / R, -1, 1)) / DEG;
-    const a1 = Math.asin(clamp((sx + SLICE_PX) / R, -1, 1)) / DEG;
-    const x0 = cx + sx;
-    // 소스 경도 → 텍스처 u (랩어라운드: 심 걸치면 두 번에 나눠 그림)
-    const lon0 = rotLonDeg + a0;
-    const u0 = ((lon0 + 180) % 360 + 360) % 360 / 360 * TEX_W;
-    const uw = Math.max(0.5, ((a1 - a0) / 360) * TEX_W);
-    if (u0 + uw <= TEX_W) {
-      ctx.drawImage(orthoTexture, u0, 0, uw, TEX_H, x0, dy, SLICE_PX, h);
-    } else {
-      const w1 = TEX_W - u0;
-      const frac = w1 / uw;
-      ctx.drawImage(orthoTexture, u0, 0, w1, TEX_H, x0, dy, SLICE_PX * frac, h);
-      ctx.drawImage(orthoTexture, 0, 0, uw - w1, TEX_H, x0 + SLICE_PX * frac - 0.3, dy, SLICE_PX * (1 - frac) + 0.3, h);
+function ensureLut(internalR) {
+  const size = internalR * 2;
+  if (lut && lut.size === size) return;
+  if (!equiTexture) equiTexture = buildGlobeTexture();
+  // 소스 픽셀 버퍼 1회 추출
+  const sc = equiTexture.getContext('2d');
+  srcPixels = new Uint32Array(sc.getImageData(0, 0, TEX_W, TEX_H).data.buffer);
+
+  const texRowLut = new Int32Array(size * size);
+  const lonLut = new Uint16Array(size * size);
+  const sinT = Math.sin(GLOBE_TILT), cosT = Math.cos(GLOBE_TILT);
+  for (let iy = 0; iy < size; iy++) {
+    const ny = (iy + 0.5 - internalR) / internalR; // 화면 아래 +
+    const yUp = -ny;
+    for (let ix = 0; ix < size; ix++) {
+      const i = iy * size + ix;
+      const nx = (ix + 0.5 - internalR) / internalR;
+      const rho2 = nx * nx + yUp * yUp;
+      if (rho2 > 1) { texRowLut[i] = -1; continue; }
+      // 정투영 역변환 (단위구, sin c = ρ, cos c = sqrt(1-ρ²))
+      const cosc = Math.sqrt(1 - rho2);
+      const phi = Math.asin(clamp(cosc * sinT + yUp * cosT, -1, 1));
+      const lamRel = Math.atan2(nx, cosc * cosT - yUp * sinT); // λ − λ0
+      const texY = clamp(Math.round(((90 - phi / DEG) / 180) * (TEX_H - 1)), 0, TEX_H - 1);
+      texRowLut[i] = texY * TEX_W;
+      const lonFrac = (lamRel / (Math.PI * 2)) + 0.5; // 0..1 (λ0 기준 -180..180)
+      lonLut[i] = Math.round(((lonFrac % 1) + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
     }
   }
+  lut = { size, texRowLut, lonLut };
+  outCanvas = document.createElement('canvas');
+  outCanvas.width = size; outCanvas.height = size;
+  outCtx = outCanvas.getContext('2d');
+  outImage = outCtx.createImageData(size, size);
+  outPixels = new Uint32Array(outImage.data.buffer);
+}
+
+// 매 프레임: 경도 오프셋만 더해 텍스처 픽셀 복사 (픽셀당 덧셈+마스크+복사)
+export let globeFrameMs = 0; // 성능 계측 (renderGlobeScreen에서 참조 가능)
+function renderGlobePixels(rotLon) {
+  const t0 = performance.now();
+  const { size, texRowLut, lonLut } = lut;
+  // λ0 오프셋: lonLut은 (λ−λ0) 기준이므로 λ = rel + λ0
+  const lonOff = Math.round(((rotLon / (Math.PI * 2)) % 1 + 1) % 1 * LON_STEPS) & (LON_STEPS - 1);
+  const n = size * size;
+  for (let i = 0; i < n; i++) {
+    const row = texRowLut[i];
+    if (row < 0) { outPixels[i] = 0; continue; }
+    const texX = ((lonLut[i] + lonOff) & (LON_STEPS - 1)) >> 1; // 4096 → 2048
+    outPixels[i] = srcPixels[row + texX];
+  }
+  outCtx.putImageData(outImage, 0, 0);
+  globeFrameMs = performance.now() - t0;
+}
+
+function drawGlobeTextureWarped(ctx, cx, cy, R, rotLon, rotLat) {
+  const internalR = Math.max(60, Math.round(R * 0.5)); // 절반 해상도 렌더 → 업스케일
+  ensureLut(internalR);
+  renderGlobePixels(rotLon);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(outCanvas, cx - R, cy - R, R * 2, R * 2);
 }
 
 
@@ -539,7 +558,7 @@ export function attachGlobeDrag(canvasEl, globeState, opts = {}) {
     const dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     globeState.rotLon -= dx * ROT_SPEED;
-    globeState.rotLat = clamp(globeState.rotLat + dy * ROT_SPEED, -45 * DEG, 45 * DEG);
+    // 위도 틸트는 고정(GLOBE_TILT) — 픽셀 LUT가 틸트 기준 사전 계산이라 회전은 경도만
   };
   const onUp = () => { dragging = false; globeState.dragging = false; };
 
