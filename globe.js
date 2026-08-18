@@ -145,6 +145,92 @@ const CONTINENTS = [
 // ?depth= 개발 모드는 theme 없이 기존 zone 룩 그대로 동작한다.
 export const DIVE_SITES = [
   {
+    id: 'jeju', name: '제주 문섬', place: '대한민국', lat: 33.22, lon: 126.57, targetDepth: 40, zone: 'shallow',
+    theme: { // 연산호의 바다 — 분홍/보라 연산호 군락, 온화한 청록
+      tint: '#3fa8c0', tintK: 0.15,
+      wall: {
+        decorDensity: 1.6,
+        decor: {
+          anemones: [
+            { base: '#c94a8e', tentacle: '#f08ac0', tip: '#ffd8ec' },
+            { base: '#8a4ac0', tentacle: '#b88ae8', tip: '#e8d8ff' },
+          ],
+          coral: { branch: '#d05a92', tip: '#f0a0c8' },
+          starfish: ['#e0566a', '#c04ab0'],
+        },
+      },
+      spawnBias: { damselfish: 2, softcoral: 1.5 },
+    },
+  },
+  {
+    id: 'okinawa', name: '케라마 제도', place: '일본 오키나와', lat: 26.2, lon: 127.3, targetDepth: 50, zone: 'shallow',
+    theme: { // 투명한 열대 산호초 — 밝고 화사한 물빛
+      tint: '#4fd0d8', tintK: 0.15,
+      wall: { decorDensity: 1.4 },
+      spawnBias: { napoleonfish: 2, clownfish: 2, ribboneel: 1.5 },
+    },
+  },
+  {
+    id: 'silfra', name: '실프라 협곡', place: '아이슬란드', lat: 64.26, lon: -21.12, targetDepth: 60, zone: 'shallow',
+    theme: { // 대륙판 틈새의 빙하수 — 수정처럼 투명, 창백한 암벽, 한적함
+      tint: '#9fe8ff', tintK: 0.35,
+      wall: { fg: '#7da8b8', bg: '#4a6a78', accent: '#d8f4ff', decorDensity: 0.25 },
+      spawnSlowMul: 1.5,
+      spawnBias: { arcticchar: 3 },
+    },
+  },
+  {
+    id: 'similan', name: '시밀란 제도', place: '태국', lat: 8.65, lon: 97.64, targetDepth: 70, zone: 'shallow',
+    theme: { // 화강암 바위산과 거북의 바다
+      tint: '#3fc0a8', tintK: 0.18,
+      wall: { fg: '#8a8ea0', bg: '#5a5e70', accent: '#e8c05a', decorDensity: 1.2 },
+      spawnBias: { seaturtle: 3, reefshark: 2 },
+    },
+  },
+  {
+    id: 'maldives', name: '몰디브 환초', place: '몰디브', lat: 3.2, lon: 73.0, targetDepth: 80, zone: 'shallow',
+    theme: { // 만타의 활공로 — 쪽빛 환초
+      tint: '#2f9ed8', tintK: 0.2,
+      wall: { decorDensity: 1.2 },
+      spawnBias: { mantaray: 2.5, whaleshark: 2 },
+    },
+  },
+  {
+    id: 'rajaampat', name: '라자암팟', place: '인도네시아', lat: -0.5, lon: 130.5, targetDepth: 100, zone: 'twilight',
+    theme: { // 세계 최고 생물다양성 — 산호 최대 밀도
+      tint: '#3fb890', tintK: 0.2,
+      wall: {
+        decorDensity: 2.2,
+        decor: {
+          anemones: [
+            { base: '#c93f7e', tentacle: '#ff7fc4', tip: '#ffe0f0' },
+            { base: '#2f9e6a', tentacle: '#6ad8a0', tip: '#d0ffe8' },
+            { base: '#d9762a', tentacle: '#ffb15c', tip: '#ffe9c8' },
+          ],
+          coral: { branch: '#e05a3a', tip: '#ffb08a' },
+          starfish: ['#e8452f', '#3f7ee0', '#e0862f'],
+        },
+      },
+      spawnBias: { mandarinfish: 2, pygmyseahorse: 1.5, clownfish: 1.5, bluetang: 1.5 },
+    },
+  },
+  {
+    id: 'cenote', name: '유카탄 세노테', place: '멕시코', lat: 20.2, lon: -87.5, targetDepth: 120, zone: 'twilight',
+    theme: { // 석회암 동굴 담수 — 종유석 줄무늬 벽 + 투명한 민물 청록
+      tint: '#40e0c8', tintK: 0.32,
+      wall: { fg: '#cfc0a0', bg: '#8a7a5e', accent: '#e8dcc0', stripes: true, decorDensity: 0.2 },
+      spawnBias: { blindcavefish: 3 },
+    },
+  },
+  {
+    id: 'galapagos', name: '갈라파고스', place: '에콰도르', lat: -0.6, lon: -90.8, targetDepth: 180, zone: 'twilight',
+    theme: { // 고유종의 천국 — 살짝 서늘한 훔볼트 해류빛
+      tint: '#2a6a8a', tintK: 0.25,
+      wall: { fg: '#5a5248', bg: '#38322c', accent: '#7a9e5a', decorDensity: 0.9 },
+      spawnBias: { marineiguana: 2.5, galapagosshark: 2.5 },
+    },
+  },
+  {
     id: 'gbr', name: '그레이트배리어리프', place: '호주', lat: -18.28, lon: 147.70, targetDepth: 200, zone: 'shallow',
     theme: { // 산호의 낙원 — 현행 표층 룩 유지 + 산호 장식 최대 밀도, 밝은 청록 기운
       tint: '#7fe8e0', tintK: 0.12,
@@ -264,6 +350,156 @@ function drawGraticuleLine(ctx, kind, value, rotLon, rotLat, R, cx, cy) {
   ctx.stroke();
 }
 
+
+// ---------------------------------------------------------------------------
+// 다이빙 스팟이 있는 나라의 국기 표현 — 간략화된 나라 경계 폴리곤을 구면 투영해
+// 그리고 내부를 국기 디자인으로 클리핑 채움. "아 저기가 그 나라구나" 수준의
+// 단순화(요철 5~12점). 아주 작은 섬나라(몰디브·벨리즈·팔라우·통가)는 생략하고
+// 핀으로만 표시한다.
+// fill(ctx, b): b = 투영된 폴리곤의 화면 bbox {x,y,w,h} — 클리핑된 상태에서 호출됨.
+const COUNTRY_FLAGS = [
+  {
+    id: 'KR', // 태극기 (흰 바탕 + 태극 원 단순화)
+    poly: [[126.2, 37.8], [127.6, 38.3], [129.0, 38.6], [129.5, 36.5], [129.3, 35.2], [127.8, 34.6], [126.3, 34.5], [126.1, 36.2]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      const cxm = b.x + b.w / 2, cym = b.y + b.h / 2, r = Math.min(b.w, b.h) * 0.28;
+      ctx.fillStyle = '#c8102e';
+      ctx.beginPath(); ctx.arc(cxm, cym, r, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#003478';
+      ctx.beginPath(); ctx.arc(cxm, cym, r, 0, Math.PI); ctx.fill();
+    },
+  },
+  {
+    id: 'JP', // 일장기
+    poly: [[130.0, 31.3], [131.8, 33.2], [135.0, 34.2], [138.0, 34.8], [140.6, 35.4], [141.6, 39.0], [140.6, 41.5], [139.4, 38.2], [136.2, 36.2], [132.6, 35.0], [129.8, 33.0]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = '#bc002d';
+      ctx.beginPath(); ctx.arc(b.x + b.w / 2, b.y + b.h / 2, Math.min(b.w, b.h) * 0.24, 0, Math.PI * 2); ctx.fill();
+    },
+  },
+  {
+    id: 'IS', // 아이슬란드 (파랑 + 흰/빨강 북유럽 십자)
+    poly: [[-24.5, 65.5], [-22.0, 66.4], [-18.0, 66.5], [-14.5, 65.8], [-13.8, 64.6], [-16.5, 63.5], [-20.5, 63.4], [-22.7, 64.1]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#02529c'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      const vx = b.x + b.w * 0.38, hy = b.y + b.h * 0.5;
+      ctx.fillStyle = '#f2f2f2';
+      ctx.fillRect(vx - b.w * 0.1, b.y, b.w * 0.2, b.h);
+      ctx.fillRect(b.x, hy - b.h * 0.1, b.w, b.h * 0.2);
+      ctx.fillStyle = '#dc1e35';
+      ctx.fillRect(vx - b.w * 0.05, b.y, b.w * 0.1, b.h);
+      ctx.fillRect(b.x, hy - b.h * 0.05, b.w, b.h * 0.1);
+    },
+  },
+  {
+    id: 'TH', // 태국 (빨-흰-파-흰-빨 가로줄)
+    poly: [[98.4, 19.8], [100.8, 20.3], [101.2, 18.0], [102.6, 16.4], [102.2, 14.5], [100.6, 13.6], [99.2, 10.8], [98.6, 8.4], [98.2, 11.8], [99.4, 13.6], [98.0, 15.2], [97.8, 18.2]],
+    fill(ctx, b) {
+      const rows = [['#a51931', 0.17], ['#f4f5f8', 0.17], ['#2d2a4a', 0.32], ['#f4f5f8', 0.17], ['#a51931', 0.17]];
+      let y = b.y;
+      for (const [c, f] of rows) { ctx.fillStyle = c; ctx.fillRect(b.x, y, b.w, b.h * f + 1); y += b.h * f; }
+    },
+  },
+  {
+    id: 'ID', // 인도네시아 (위 빨강, 아래 흰색) — 군도라 큰 섬 두 개로 표현
+    poly: [[95.5, 5.5], [102.5, 1.5], [106.0, -3.0], [110.5, -7.5], [115.0, -8.5], [114.0, -6.5], [108.5, -5.0], [104.5, -1.0], [98.5, 4.0]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y, b.w, b.h / 2);
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y + b.h / 2, b.w, b.h / 2);
+    },
+  },
+  {
+    id: 'MX', // 멕시코 (초-흰-빨 세로 3분할)
+    poly: [[-117.0, 32.5], [-110.0, 31.2], [-104.0, 29.6], [-97.5, 26.0], [-97.2, 22.0], [-94.0, 18.4], [-90.4, 21.0], [-86.8, 21.4], [-89.2, 17.6], [-94.8, 16.2], [-104.8, 19.6], [-114.4, 27.6]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#006847'; ctx.fillRect(b.x, b.y, b.w / 3, b.h);
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x + b.w / 3, b.y, b.w / 3, b.h);
+      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x + (b.w * 2) / 3, b.y, b.w / 3, b.h);
+    },
+  },
+  {
+    id: 'EC', // 에콰도르 (노-파-빨 가로, 노랑이 절반)
+    poly: [[-80.9, 1.2], [-78.0, 1.3], [-75.4, -0.5], [-75.6, -3.5], [-79.6, -4.5], [-81.0, -2.4]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#ffd100'; ctx.fillRect(b.x, b.y, b.w, b.h * 0.5);
+      ctx.fillStyle = '#0072ce'; ctx.fillRect(b.x, b.y + b.h * 0.5, b.w, b.h * 0.25);
+      ctx.fillStyle = '#ef3340'; ctx.fillRect(b.x, b.y + b.h * 0.75, b.w, b.h * 0.25);
+    },
+  },
+  {
+    id: 'AU', // 호주 (남색 + 남십자성 별 몇 개로 단순화)
+    poly: [[113.5, -22.0], [114.5, -26.5], [118.0, -32.0], [124.0, -33.5], [129.5, -32.0], [135.5, -34.8], [138.5, -35.5], [141.0, -38.2], [146.5, -39.0], [150.0, -37.2], [153.0, -31.0], [152.5, -26.0], [148.5, -20.0], [145.5, -15.0], [141.5, -13.0], [137.0, -14.5], [132.0, -12.0], [126.5, -14.0], [122.0, -17.5], [117.0, -20.5]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#00247d'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = '#f2f2f2';
+      for (const [fx, fy, r] of [[0.72, 0.25, 0.045], [0.78, 0.5, 0.05], [0.68, 0.68, 0.045], [0.55, 0.45, 0.038], [0.3, 0.6, 0.06]]) {
+        ctx.beginPath();
+        ctx.arc(b.x + b.w * fx, b.y + b.h * fy, Math.max(1.1, Math.min(b.w, b.h) * r), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+  },
+  {
+    id: 'EG', // 이집트 (빨-흰-검 가로 + 금색 점)
+    poly: [[25.0, 31.5], [32.0, 31.2], [34.2, 30.8], [34.9, 29.2], [34.2, 22.0], [25.0, 22.0]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y, b.w, b.h / 3);
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(b.x, b.y + b.h / 3, b.w, b.h / 3);
+      ctx.fillStyle = '#2b2b2b'; ctx.fillRect(b.x, b.y + (b.h * 2) / 3, b.w, b.h / 3);
+      ctx.fillStyle = '#c09300';
+      ctx.beginPath(); ctx.arc(b.x + b.w / 2, b.y + b.h / 2, Math.min(b.w, b.h) * 0.08, 0, Math.PI * 2); ctx.fill();
+    },
+  },
+  {
+    id: 'PH', // 필리핀 (흰 삼각 + 파랑/빨강 가로) — 루손 중심 단순화
+    poly: [[119.8, 18.5], [122.2, 18.4], [123.8, 13.5], [126.2, 7.2], [122.2, 5.8], [119.6, 10.5], [120.2, 14.5]],
+    fill(ctx, b) {
+      ctx.fillStyle = '#0038a8'; ctx.fillRect(b.x, b.y, b.w, b.h / 2);
+      ctx.fillStyle = '#ce1126'; ctx.fillRect(b.x, b.y + b.h / 2, b.w, b.h / 2);
+      ctx.fillStyle = '#f2f2f2';
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y); ctx.lineTo(b.x + b.w * 0.45, b.y + b.h / 2); ctx.lineTo(b.x, b.y + b.h);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fcd116';
+      ctx.beginPath(); ctx.arc(b.x + b.w * 0.14, b.y + b.h / 2, Math.min(b.w, b.h) * 0.07, 0, Math.PI * 2); ctx.fill();
+    },
+  },
+];
+
+function drawCountryFlags(ctx, rotLon, rotLat, R, cx, cy) {
+  for (const country of COUNTRY_FLAGS) {
+    const pts = country.poly
+      .map(([lon, lat]) => project(lon, lat, rotLon, rotLat, R, cx, cy))
+      .filter(p => p.z > 0.02);
+    if (pts.length < 3) continue;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+    const b = { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    ctx.clip();
+    country.fill(ctx, b);
+    ctx.restore();
+    // 윤곽선 (국기 경계 또렷하게)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(15,30,20,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawContinentPolygons(ctx, rotLon, rotLat, R, cx, cy) {
   const tracePath = (pts, shrink = 1, ox = 0, oy = 0) => {
     ctx.beginPath();
@@ -338,6 +574,7 @@ export function drawGlobe(ctx, cx, cy, R, globeState) {
   for (let lat = -60; lat <= 60; lat += 30) drawGraticuleLine(ctx, 'parallel', lat, rotLon, rotLat, R, cx, cy);
 
   drawContinentPolygons(ctx, rotLon, rotLat, R, cx, cy);
+  drawCountryFlags(ctx, rotLon, rotLat, R, cx, cy);
 
   // 구체 그림자(우하단이 살짝 어둡게, 조명 방향과 반대쪽)
   const shadow = ctx.createRadialGradient(cx + R * 0.45, cy + R * 0.5, R * 0.1, cx, cy, R * 1.1);
@@ -427,9 +664,15 @@ export function saveClearedSet(clearedSet) {
 }
 
 // 인덱스 0(첫 레벨)은 항상 열려 있고, 이후는 "바로 앞 레벨을 클리어했는가"로 잠금 해제된다.
+// 추가 규칙(1.1에서 중간에 새 스팟이 끼어든 것 대비): 본인 또는 더 뒤의 스팟을 이미
+// 클리어했다면 그 앞은 전부 열린 것으로 본다 — 기존 진행자가 퇴행하지 않게.
 export function isSiteUnlocked(index, clearedSet, sites) {
   if (index <= 0) return true;
-  return clearedSet.has(sites[index - 1].id);
+  if (clearedSet.has(sites[index - 1].id) || clearedSet.has(sites[index].id)) return true;
+  for (let i = index + 1; i < sites.length; i++) {
+    if (clearedSet.has(sites[i].id)) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
