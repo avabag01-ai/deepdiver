@@ -96,14 +96,18 @@ function drawLeg(ctx, offsetX, kick, scale, suitColor) {
 export const PLAYER_ANCHOR_Y = CANVAS_H * 0.72; // 기본(중립) y — 세로 이동 범위의 중심
 export const PLAYER_RADIUS = 16; // 시각 크기 기준 (충돌 반경은 game.js에서 0.6배 적용)
 
-// 세로 자유 이동 범위: 화면 세로 길이의 약 35% 구간, 중하단에 위치
-export const PLAYER_Y_MIN = CANVAS_H * 0.56;
-export const PLAYER_Y_MAX = CANVAS_H * 0.91;
+// 세로 자유 이동 범위: 화면 거의 전체. 위쪽 한계는 HUD(깊이 게이지·하트·목표 표시)에
+// 다이버가 가리지 않도록 그 아래로만 잡는다.
+export const PLAYER_Y_MIN = CANVAS_H * 0.21;
+export const PLAYER_Y_MAX = CANVAS_H * 0.95;
 
 const MOVE_ACCEL = 900;      // px/s^2 — 키/버튼 입력 가속도
 const MOVE_MAX_SPEED = 240;  // px/s
 const MOVE_DAMPING = 6.0;    // 관성 감쇠 계수 (초당)
 const DRAG_FOLLOW = 10.0;    // 드래그 시 목표 좌표로 수렴하는 속도 계수
+// 손가락이 다이버를 가리지 않도록, 터치 지점보다 이만큼 위를 목표로 삼는다.
+// (수렴 방식이라 터치 순간 순간이동하지 않고 부드럽게 미끄러져 붙는다)
+const TOUCH_LIFT_Y = 62;
 
 export function createPlayer() {
   return {
@@ -148,19 +152,23 @@ export function attachPlayerInput(player, canvasEl) {
     };
   }
 
+  // 터치 지점 → 다이버 목표 위치. 손가락 위로 띄우고, 이동 범위 안으로 가둔다.
+  function setDragTarget(p) {
+    player.dragTargetX = clamp(p.x, PLAYER_RADIUS, CANVAS_W - PLAYER_RADIUS);
+    player.dragTargetY = clamp(p.y - TOUCH_LIFT_Y, PLAYER_Y_MIN, PLAYER_Y_MAX);
+  }
+
   let dragging = false;
   canvasEl.addEventListener('pointerdown', (e) => {
     dragging = true;
     const p = clientToCanvasXY(e.clientX, e.clientY);
-    player.dragTargetX = p.x;
-    player.dragTargetY = p.y;
+    setDragTarget(p);
     canvasEl.setPointerCapture(e.pointerId);
   });
   canvasEl.addEventListener('pointermove', (e) => {
     if (!dragging) return;
     const p = clientToCanvasXY(e.clientX, e.clientY);
-    player.dragTargetX = p.x;
-    player.dragTargetY = p.y;
+    setDragTarget(p);
   });
   const endDrag = () => { dragging = false; player.dragTargetX = null; player.dragTargetY = null; };
   canvasEl.addEventListener('pointerup', endDrag);
